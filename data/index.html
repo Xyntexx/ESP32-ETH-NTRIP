@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 NTRIP Server</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body onload="indexStart()">
+    <nav class="navbar">
+        <div class="nav-content">
+            <ul class="nav-links">
+                <li><a href="index.html" class="active">HOME</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Device Status Panel -->
+        <div class="device-status-panel">
+            <div class="status-grid">
+                <!-- System Info -->
+                <div class="status-item">
+                    <h3>System Info</h3>
+                    <div class="status-label">Uptime: <span id="uptime">--</span></div>
+                    <div class="status-value">
+                        <div>Version: <span id="firmwareVersion">--</span></div>
+                    </div>
+                    <div class="status-label">Firmware built: <span id="buildDate">--</span></div>
+                </div>
+                
+                <!-- GPS Status -->
+                <div class="status-item">
+                    <h3>GPS Status</h3>
+                    <div class="status-value" id="gpsStatus">--</div>
+                    <div class="status-label" id="gpsCoordinates">Lat: --, Lon: --</div>
+                    <div class="status-label">
+                        Satellites: <span id="sivCard">--</span>
+                    </div>
+                    <div class="status-label">
+                        Mode: <span id="gpsMode">--</span>
+                    </div>
+                    <div class="survey-status" id="surveyStatusContainer" style="display: none;">
+                        <div class="status-value">Survey-in:</div>
+                        <div class="status-value" id="surveyActive">--</div>
+                        <div class="survey-details" id="surveyDetails">
+                            <span>Time: <span id="surveyTime">0</span>s</span>
+                            <span>Accuracy: <span id="surveyAccuracy">-</span>m</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- NTRIP Connections -->
+                <div class="status-item">
+                    <h3>NTRIP Connections</h3>
+                    <div class="ntrip-status">
+                        <div class="ntrip-connection">
+                            <div class="connection-label">Primary:</div>
+                            <div class="status-label" id="ntripEnabled1">Disabled</div>
+                            <div class="status-value" id="ntripConnection1">--</div>
+                            <div class="status-label" id="ntripCard1" style="display: none;">--</div>
+                        </div>
+                        <div class="ntrip-connection">
+                            <div class="connection-label">Secondary:</div>
+                            <div class="status-label" id="ntripEnabled2">Disabled</div>
+                            <div class="status-value" id="ntripConnection2">--</div>
+                            <div class="status-label" id="ntripCard2" style="display: none;">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Form - Combined all settings under one form -->
+        <div class="settings-container">
+            <section class="settings-section">
+                <h2>Device Settings</h2>
+                
+                <!-- Loading overlay for the form -->
+                <div class="loading-overlay" id="loadingOverlay">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-message" id="loadingMessage">Loading settings...</div>
+                    <button class="loading-retry" id="retryButton" style="display: none">Retry</button>
+                </div>
+
+                <form action="/applySettings" class="settings-form form-loading" novalidate>
+                    <div class="form-group">
+                        <label for="ntrip_sName">NTRIP Server Name</label>
+                        <input type="text" id="ntrip_sName" name="ntrip_sName" required>
+                        <small>Name to be announced to the NTRIP caster.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="switch-container">
+                            <label class="switch">
+                                <input type="checkbox" id="enableRtcmChecks" name="rtcmChk">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label">Enable RTCM Checks</span>
+                        </div>
+                        <small>Enable checking for RTCM data before connecting and monitoring for timeouts.</small>
+                    </div>
+
+                    <h3 class="subsection-title">Station Position (ECEF)</h3>
+                    <div class="form-group">
+                        <label for="ecefX">ECEF X (cm)</label>
+                        <input type="number" id="ecefX" name="ecefX" step="0.01" required>
+                        <small>Earth-Centered Earth-Fixed X coordinate in centimeters with 0.1mm precision.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ecefY">ECEF Y (cm)</label>
+                        <input type="number" id="ecefY" name="ecefY" step="0.01" required>
+                        <small>Earth-Centered Earth-Fixed Y coordinate in centimeters with 0.1mm precision.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ecefZ">ECEF Z (cm)</label>
+                        <input type="number" id="ecefZ" name="ecefZ" step="0.01" required>
+                        <small>Earth-Centered Earth-Fixed Z coordinate in centimeters with 0.1mm precision.</small>
+                    </div>
+
+                    <h3 class="subsection-title">Primary NTRIP Connection</h3>
+                    <div class="caster-header">
+                        <div class="switch-container">
+                            <label class="switch">
+                                <input type="checkbox" id="enableCaster1" name="enableCaster1">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label">Enable Primary Caster</span>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="casterHost1">Caster Host</label>
+                            <input type="text" id="casterHost1" name="casterHost1" required>
+                            <small>URL of the Caster server.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="casterPort1">Caster Port</label>
+                            <input type="number" id="casterPort1" name="casterPort1" required>
+                            <small>Port of the Caster server.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="rtk_mntpnt1">RTK2go mountpoint</label>
+                            <input type="text" id="rtk_mntpnt1" name="rtk_mntpnt1" required>
+                            <small>RTK2go Mount point.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="rtk_mntpnt_pw1">RTK2go password</label>
+                            <div class="password-container">
+                                <input type="password" id="rtk_mntpnt_pw1" name="rtk_mntpnt_pw1" required>
+                                <button type="button" class="password-toggle" onclick="togglePassword('rtk_mntpnt_pw1')" tabindex="-1"></button>
+                            </div>
+                            <small>RTK2go Mount point password.</small>
+                        </div>
+                    </div>
+
+                    <h3 class="subsection-title">Secondary NTRIP Connection</h3>
+                    <div class="caster-header">
+                        <div class="switch-container">
+                            <label class="switch">
+                                <input type="checkbox" id="enableCaster2" name="enableCaster2">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label">Enable Secondary Caster</span>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="casterHost2">Caster Host</label>
+                            <input type="text" id="casterHost2" name="casterHost2" required>
+                            <small>URL of the backup Caster server.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="casterPort2">Caster Port</label>
+                            <input type="number" id="casterPort2" name="casterPort2" required>
+                            <small>Port of the backup Caster server.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="rtk_mntpnt2">RTK2go mountpoint</label>
+                            <input type="text" id="rtk_mntpnt2" name="rtk_mntpnt2" required>
+                            <small>Backup RTK2go Mount point.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="rtk_mntpnt_pw2">RTK2go password</label>
+                            <div class="password-container">
+                                <input type="password" id="rtk_mntpnt_pw2" name="rtk_mntpnt_pw2" required>
+                                <button type="button" class="password-toggle" onclick="togglePassword('rtk_mntpnt_pw2')" tabindex="-1"></button>
+                            </div>
+                            <small>Backup RTK2go Mount point password.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Save & Reboot</button>
+                        <button type="submit" class="btn btn-secondary" formaction="/restart">Only Reboot</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+        <!-- Survey-In Mode Box -->
+        <div class="settings-container">
+            <section class="settings-section">
+                <h2>Survey-In Mode</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="surveyTimeInput">Survey Time</label>
+                        <input type="number" id="surveyTimeInput" name="surveyTimeInput" 
+                               min="0" max="86400" step="1" value="3600" required>
+                        <small>Survey time in seconds.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="surveyAccuracyInput">Survey Accuracy</label>
+                        <input type="number" id="surveyAccuracyInput" name="surveyAccuracyInput"
+                               min="0" max="100" step="0.1" value="2" required>
+                        <small>Survey accuracy in meters.</small>
+                    </div>
+                </div>
+                <small> Survey-in mode will run until both conditions are met.</small>
+
+                <div class="button-group">
+                    <button type="button" id="startSurveyBtn" class="btn btn-success">Start Survey</button>
+                    <button type="button" id="stopSurveyBtn" class="btn btn-danger">Stop Survey</button>
+                </div>
+                <div class="survey-status-panel" id="surveyStatusPanel" style="display: none;">
+                    <div class="status-icon" id="surveyStatusIcon"></div>
+                    <div class="status-message" id="surveyStatusMessage"></div>
+                </div>
+            </section>
+        </div>
+
+        <!-- OTA Update -->
+        <div class="settings-container">
+            <section class="settings-section">
+                <h2>OTA Update</h2>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="firmware">Firmware File (.bin)</label>
+                        <input type="file" id="firmware" name="firmware" accept=".bin" required>
+                        <small>Select the firmware file to upload</small>
+                    </div>
+                    <div class="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill"></div>
+                        </div>
+                        <div class="progress-text">0%</div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Upload & Update</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+        <!-- System Logs - Moved from index.html -->
+        <div class="settings-container">
+            <section class="settings-section">
+                <h2>System Logs</h2>
+                <div class="logs-panel">
+                    <div class="logs-header">
+                        <div class="logs-controls">
+                            <button class="btn btn-secondary" onclick="getLog()">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="logs-container">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logTable">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <iframe style="display:none" name="hidden-form"></iframe>
+    <div class="reboot-overlay">
+        <div class="reboot-message" id="rebootMessage">Rebooting...</div>
+        <div class="reboot-spinner"></div>
+    </div>
+    <script src="js/app.js"></script>
+</body>
+
+</html>
