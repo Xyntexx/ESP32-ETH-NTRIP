@@ -185,21 +185,44 @@ function updateLogs() {
         if (this.readyState === 4 && this.status === 200) {
             let json = JSON.parse(this.responseText);
             const logTable = document.getElementById('logTable');
+            const serverTimestamp = json.timestamp;
+            const currentTime = Date.now();
 
             // Clear existing rows
             while (logTable.firstChild) {
                 logTable.removeChild(logTable.firstChild);
             }
 
-            json.log.forEach(element => {
-                let [logTime, logText] = element;
+            json.log.forEach(logEntry => {
+                if (!Array.isArray(logEntry) || logEntry.length !== 2) return; // Skip invalid entries
+                
+                const logMillis = parseInt(logEntry[0]);
+                const logText = logEntry[1];
+                
+                // Calculate time difference between now and server timestamp
+                const timeOffset = currentTime - serverTimestamp;
+                
+                // Convert log millis to absolute time by adding the offset
+                // Current time - (current server time - log time)
+                const absoluteLogTime = new Date(currentTime - (serverTimestamp - logMillis));
+                
+                // Format with date and time
+                const options = { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric',
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit'
+                };
+                const formattedDateTime = absoluteLogTime.toLocaleString(undefined, options);
                 
                 const row = document.createElement('tr');
                 row.className = logText.includes("ERR") ? "log-error" : 
                               logText.includes("INF") ? "log-info" : "";
 
                 const timeCell = document.createElement('td');
-                timeCell.textContent = logTime;
+                timeCell.textContent = formattedDateTime;
                 
                 const infoCell = document.createElement('td');
                 infoCell.textContent = logText;
