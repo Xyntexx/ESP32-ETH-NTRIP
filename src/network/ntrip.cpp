@@ -26,7 +26,6 @@ NTRIPStatus NtripSecondaryStatus = {false, 0,  "", 0, 0};
 unsigned long lastReport_ms      = 0;
 unsigned long lastRtcmCheck_ms   = 0;
 unsigned long lastRtcmData_ms    = 0;  // Track when we last received RTCM data
-bool ntrip_should_be_connected   = false;
 
 
 [[noreturn]] void NTRIPTask(void *pvParameter);
@@ -63,7 +62,56 @@ String getErrorMessage(NTRIPError error) {
     }
 }
 
-bool verifyServerResponse(WiFiClient& client);
+bool verifyServerResponse(WiFiClient& client) {
+    // Wait for response with timeout
+    unsigned long timeout = millis();
+    while (client.available() == 0) {
+        if ((unsigned long)(millis() - timeout) > connectionTimeout) {
+            error("Client Timeout");
+            client.stop(); // Ensure client is properly stopped
+            return false;
+        }
+        delay(10);
+        yield();
+    }
+
+    // Check reply - safer buffer handling
+    constexpr int MAX_RESPONSE_SIZE = 512;
+    char response[MAX_RESPONSE_SIZE];
+    int responseSpot = 0;
+    
+    // Read response with buffer protection
+    while (client.available() && responseSpot < MAX_RESPONSE_SIZE - 1) {
+        response[responseSpot++] = client.read();
+        if (responseSpot >= 3) { // At least 3 characters to check for "200"
+            // Null-terminate the partial buffer for string operations
+            response[responseSpot] = '\0';
+            
+            // Accept either "ICY 200 OK" or any response with "200" status code
+            if (strstr(response, "ICY 200") || // Standard NTRIP v1 response
+                strstr(response, "HTTP/1.1 200") || // HTTP style response
+                strstr(response, "HTTP/1.0 200") || // HTTP style response
+                strstr(response, "200 OK")) { // Generic 200 OK
+                
+                // Found successful response, but keep reading to clear buffer
+                while (client.available()) {
+                    client.read(); // Clear remaining bytes
+                    yield();
+                }
+                debug("Caster response OK");
+                return true;
+            }
+        }
+        yield();
+    }
+    
+    // Ensure null termination
+    response[responseSpot < MAX_RESPONSE_SIZE ? responseSpot : MAX_RESPONSE_SIZE - 1] = '\0';
+
+    errorf("Failed to verify server response: %s", response);
+    client.stop(); // Ensure client is properly stopped
+    return false;
+}
 
 void handleError(bool isPrimary, NTRIPError error) {
     String prefix = isPrimary ? "Primary" : "Secondary";
@@ -73,10 +121,20 @@ void handleError(bool isPrimary, NTRIPError error) {
 
     if (isPrimary) {
         NtripPrimaryStatus.lastError = errorMsg;
-        NtripPrimaryStatus.reconnectAttempts++;
+        // Only increment reconnect attempts for connection related errors
+        if (error == NTRIPError::CONNECTION_FAILED || 
+            error == NTRIPError::TIMEOUT || 
+            error == NTRIPError::AUTH_FAILED) {
+            NtripPrimaryStatus.reconnectAttempts++;
+        }
     } else {
         NtripSecondaryStatus.lastError = errorMsg;
-        NtripSecondaryStatus.reconnectAttempts++;
+        // Only increment reconnect attempts for connection related errors
+        if (error == NTRIPError::CONNECTION_FAILED || 
+            error == NTRIPError::TIMEOUT || 
+            error == NTRIPError::AUTH_FAILED) {
+            NtripSecondaryStatus.reconnectAttempts++;
+        }
     }
 }
 
@@ -86,14 +144,46 @@ bool stopNTRIP(WiFiClient& client, bool isPrimary)
 
     client.stop();
     infof("NTRIP %s - Disconnected", isPrimary ? "Primary" : "Secondary");
+    
     if (isPrimary) {
-        NtripPrimaryStatus = {false, 0,  "", 0, 0};
+        // Preserve reconnection attempts and last error when disconnecting
+        NTRIPStatus newStatus = NtripPrimaryStatus;
+        newStatus.connected = false;
+        newStatus.bytesSent = 0;
+        newStatus.connectionOpenedAt = 0;
+        NtripPrimaryStatus = newStatus;
     } else {
-        NtripSecondaryStatus = {false, 0,  "", 0, 0};
+        // Preserve reconnection attempts and last error when disconnecting
+        NTRIPStatus newStatus = NtripSecondaryStatus;
+        newStatus.connected = false;
+        newStatus.bytesSent = 0;
+        newStatus.connectionOpenedAt = 0;
+        NtripSecondaryStatus = newStatus;
     }
     return true;
 }
 
+
+// Replace the checkConnectionHealth function with this improved version
+NTRIPError checkConnectionHealth(WiFiClient& client, NTRIPStatus& status, bool isPrimary) {
+    const unsigned long currentMillis = millis();
+    
+    // Check if the client is connected at all - always check this regardless of stability period
+    if (!client.connected()) {
+        handleError(isPrimary, NTRIPError::CONNECTION_FAILED);
+        return NTRIPError::CONNECTION_FAILED;
+    }
+    
+    // If we're in the stability period, only perform basic checks
+    bool inStabilityPeriod = (unsigned long)(currentMillis - status.connectionOpenedAt) < connectionStabilityTimeout_ms;
+    
+    // During stability period, we're more lenient with connection checks
+    if (inStabilityPeriod) {
+        return NTRIPError::NONE;
+    }
+    
+    return NTRIPError::NONE;
+}
 
 // Handle all RTCM Checking related things. If return is true, the NTRIP connection should be opened or continued. if false, the NTRIP connection should be closed immediately.
 NTRIPError RTCMCheck() {
@@ -106,11 +196,14 @@ NTRIPError RTCMCheck() {
 
     // Don't allow connection during survey mode
     if (currentGPSStatus.surveyInActive) {
+        debugf("NTRIP - Survey in active, not connecting");
         return NTRIPError::SURVEY_IN_ACTIVE;
     }
 
     // If we haven't received RTCM data in the timeout period, don't allow connection
-    if (currentMillis - lastRtcmData_ms > maxTimeBeforeHangup_ms) {
+    if ((unsigned long)(currentMillis - lastRtcmData_ms) > maxTimeBeforeHangup_ms) {
+        debugf("NTRIP - RTCM timeout: last data %lu ms ago", 
+              (unsigned long)(currentMillis - lastRtcmData_ms));
         return NTRIPError::RTCM_TIMEOUT;
     }
 
@@ -118,82 +211,84 @@ NTRIPError RTCMCheck() {
     return NTRIPError::NONE;
 }
 
-// Replace the checkConnectionHealth function with this improved version
-NTRIPError checkConnectionHealth(WiFiClient& client, NTRIPStatus& status, bool isPrimary) {
-    // If we're in the stability period, don't check too aggressively
-    if (millis() - status.connectionOpenedAt < connectionStabilityTimeout_ms) {
-        return NTRIPError::NONE;
-    }
-
-    // Basic connection check
-    if (!client.connected()) {
-        handleError(isPrimary, NTRIPError::CONNECTION_FAILED);
-        stopNTRIP(client, isPrimary);
-        return NTRIPError::CONNECTION_FAILED;
-    }
-
-    return NTRIPError::NONE;
-}
-
 void handleNTRIP()
 {
     static unsigned long previousConnectAttempt = 0;
-    static int connectAttemptCount = 0;  // Track number of failed attempts
+    // Remove duplicate counter as we already have reconnectAttempts in the status structs
     const unsigned long currentMillis = millis();
 
-    // Calculate the appropriate delay based on failed attempts
-    unsigned long connectInterval = (connectAttemptCount >= maxReconnectAttempts) ? slowReconnectDelay : reconnectDelay;
+    // Calculate the appropriate delay based on max of both connection attempts
+    int maxAttempts = max(NtripPrimaryStatus.reconnectAttempts, NtripSecondaryStatus.reconnectAttempts);
+    unsigned long connectInterval = (maxAttempts >= maxReconnectAttempts) ? slowReconnectDelay : reconnectDelay;
 
     // Check if we should be connected based on RTCM data
-    NTRIPError error = RTCMCheck();
-
-    // Monitor existing connections
-    if (NtripPrimaryStatus.connected && error == NTRIPError::NONE){
-        error = checkConnectionHealth(client, NtripPrimaryStatus, true);
-    }
+    NTRIPError rtcmError = RTCMCheck();
     
-    if (NtripSecondaryStatus.connected && error == NTRIPError::NONE){
-        error = checkConnectionHealth(client2, NtripSecondaryStatus, false);
+    // If RTCM check fails, disconnect any existing connections
+    if (rtcmError != NTRIPError::NONE) {
+        if (NtripPrimaryStatus.connected) {
+            handleError(true, rtcmError);
+            stopNTRIP(client, true);
+        }
+        
+        if (NtripSecondaryStatus.connected) {
+            handleError(false, rtcmError);
+            stopNTRIP(client2, false);
+        }
+        return; // Don't proceed with connection attempts
     }
 
-    // Try to connect if either:
-    // 1. This is the first attempt (previousConnectAttempt is 0)
-    // 2. The interval has passed
-    // and we should be connected
-    if ((previousConnectAttempt == 0 ||
-        (currentMillis - previousConnectAttempt >= connectInterval)) && error == NTRIPError::NONE) {
-        previousConnectAttempt = currentMillis;
-        if (checkAndConnect(client, NtripPrimaryStatus, true)) {
-            connectAttemptCount = 0;  // Reset counter on successful connection
-        } else {
-            connectAttemptCount++;  // Increment counter on failed connection
-        }
-        if (checkAndConnect(client2, NtripSecondaryStatus, false)) {
-            connectAttemptCount = 0;  // Reset counter on successful connection
-        } else {
-            connectAttemptCount++;  // Increment counter on failed connection
-        }
-    }
-
-    // Check existing connections
-    if (NtripPrimaryStatus.connected && error != NTRIPError::NONE) {
-        handleError(true, error);
+    // Monitor existing connections only if RTCM check passed
+    NTRIPError primaryError = NtripPrimaryStatus.connected ? 
+        checkConnectionHealth(client, NtripPrimaryStatus, true) : NTRIPError::NONE;
+    
+    if (primaryError != NTRIPError::NONE && NtripPrimaryStatus.connected) {
+        handleError(true, primaryError);
         stopNTRIP(client, true);
     }
-
-    if (NtripSecondaryStatus.connected && error != NTRIPError::NONE) {
-        handleError(false, error);
+    
+    NTRIPError secondaryError = NtripSecondaryStatus.connected ? 
+        checkConnectionHealth(client2, NtripSecondaryStatus, false) : NTRIPError::NONE;
+    
+    if (secondaryError != NTRIPError::NONE && NtripSecondaryStatus.connected) {
+        handleError(false, secondaryError);
         stopNTRIP(client2, false);
     }
 
+    // Try to connect if not already connected and enough time has passed
+    // Handle millis() overflow by using subtraction (works correctly even with overflow)
+    bool timeToReconnect = (previousConnectAttempt == 0) || 
+                          ((unsigned long)(currentMillis - previousConnectAttempt) >= connectInterval);
+                          
+    if (timeToReconnect) {
+        previousConnectAttempt = currentMillis;
+        
+        // Only try to connect primary if not connected
+        if (!NtripPrimaryStatus.connected) {
+            if (!checkAndConnect(client, NtripPrimaryStatus, true)) {
+                // Connection attempt failed, increment is handled in handleError
+            }
+        }
+        
+        // Only try to connect secondary if not connected
+        if (!NtripSecondaryStatus.connected) {
+            if (!checkAndConnect(client2, NtripSecondaryStatus, false)) {
+                // Connection attempt failed, increment is handled in handleError
+            }
+        }
+    }
+
     // Report statistics every 10 seconds
-    if (currentMillis - lastReport_ms > 10000) {
+    // Handle millis() overflow safely
+    if ((unsigned long)(currentMillis - lastReport_ms) > 10000) {
         lastReport_ms = currentMillis;
-        debugf("NTRIP Status - Primary: %s (%d bytes), Secondary: %s (%d bytes)",
+        debugf("NTRIP Status - Primary: %s (%d bytes, %d attempts), Secondary: %s (%d bytes, %d attempts)",
             NtripPrimaryStatus.connected ? "Connected" : "Disconnected",
             NtripPrimaryStatus.bytesSent,
+            NtripPrimaryStatus.reconnectAttempts,
             NtripSecondaryStatus.connected ? "Connected" : "Disconnected",
-            NtripSecondaryStatus.bytesSent);
+            NtripSecondaryStatus.bytesSent,
+            NtripSecondaryStatus.reconnectAttempts);
     }
 }
 
@@ -211,39 +306,47 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
         return false;
     }
 
-    // Check if we should be connected based on RTCM data
-    if (RTCMCheck() != NTRIPError::NONE){
-        return false; // Don't even log, just silently wait for RTCM data
+    // If already connected, nothing to do
+    if (client.connected() || status.connected) {
+        return true;
     }
 
-    // If we get here, either RTCM checks are disabled or we have RTCM data
-    if (!client.connected() && !status.connected) {
-        const char* host = isPrimary ? settings["casterHost1"] : settings["casterHost2"];
-        uint16_t port = isPrimary ? settings["casterPort1"].as<uint16_t>() : settings["casterPort2"].as<uint16_t>();
-        const char* pw = isPrimary ? settings["rtk_mntpnt_pw1"] : settings["rtk_mntpnt_pw2"];
-        const char* mnt = isPrimary ? settings["rtk_mntpnt1"] : settings["rtk_mntpnt2"];
+    // If we get here, we should attempt to connect
+    const char* host = isPrimary ? settings["casterHost1"] : settings["casterHost2"];
+    uint16_t port = isPrimary ? settings["casterPort1"].as<uint16_t>() : settings["casterPort2"].as<uint16_t>();
+    const char* pw = isPrimary ? settings["rtk_mntpnt_pw1"] : settings["rtk_mntpnt_pw2"];
+    const char* mnt = isPrimary ? settings["rtk_mntpnt1"] : settings["rtk_mntpnt2"];
 
-        if (client.connect(host, port, connectionTimeout)) {
-            constexpr int SERVER_BUFFER_SIZE = 1024;
-            char serverBuffer[SERVER_BUFFER_SIZE];
-            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
-                "SOURCE %s /%s\r\nSource-Agent: NTRIP %s/App Version %s\r\n\r\n",
-                pw, mnt, settings["ntrip_sName"].as<const char*>(), FIRMWARE_VERSION);
+    infof("NTRIP %s - Attempting connection to %s:%d", isPrimary ? "Primary" : "Secondary", host, port);
 
-            client.write(serverBuffer, strlen(serverBuffer));
+    if (client.connect(host, port, connectionTimeout)) {
+        constexpr int SERVER_BUFFER_SIZE = 1024;
+        char serverBuffer[SERVER_BUFFER_SIZE];
+        snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            "SOURCE %s /%s\r\nSource-Agent: NTRIP %s/App Version %s\r\n\r\n",
+            pw, mnt, settings["ntrip_sName"].as<const char*>(), FIRMWARE_VERSION);
 
-            // Wait for and verify response
-            if (verifyServerResponse(client)) {
-                status.connected = true;
-                status.reconnectAttempts = 0;
-                status.lastError = "";
-                status.connectionOpenedAt = millis();
-                infof("NTRIP %s - Connected to %s", isPrimary ? "Primary" : "Secondary", host);
-                return true;
-            }
+        client.write(serverBuffer, strlen(serverBuffer));
+
+        // Wait for and verify response
+        if (verifyServerResponse(client)) {
+            status.connected = true;
+            status.reconnectAttempts = 0; // Reset attempts on successful connection
+            status.lastError = "";
+            status.connectionOpenedAt = millis();
+            lastRtcmData_ms = millis(); // Initialize RTCM data timestamp on new connection
+            infof("NTRIP %s - Connected to %s", isPrimary ? "Primary" : "Secondary", host);
+            return true;
+        } else {
+            // Connection failed during verification
+            handleError(isPrimary, NTRIPError::INVALID_RESPONSE);
+            return false;
         }
+    } else {
+        // Connection failed to establish
+        handleError(isPrimary, NTRIPError::CONNECTION_FAILED);
+        return false;
     }
-    return false;
 }
 
 void SFE_UBLOX_GNSS::processRTCM(uint8_t incoming)
@@ -263,43 +366,16 @@ void ntrip_handle_init() {
     infof("NTRIP: Primary %s, Secondary %s",
           settings["enableCaster1"].as<bool>() ? "Enabled" : "Disabled",
           settings["enableCaster2"].as<bool>() ? "Enabled" : "Disabled");
+    
+    // Initialize the lastRtcmData_ms to prevent immediate disconnection
+    // on startup when RTCM checks are enabled
+    lastRtcmData_ms = millis();
 
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
                 nullptr, // Task parameters
                 1, // Task priority
                 nullptr // Task handle
     );
-}
-
-bool verifyServerResponse(WiFiClient& client) {
-    // Wait for response with timeout
-    unsigned long timeout = millis();
-    while (client.available() == 0) {
-        if (millis() - timeout > connectionTimeout) {
-            error("Client Timeout");
-            return false;
-        }
-        delay(10);
-        yield();
-    }
-
-    // Check reply
-    char response[512];
-    int responseSpot = 0;
-    while (client.available()) {
-        response[responseSpot++] = client.read();
-        if (strstr(response, "200")) { //Look for 'ICY 200 OK'
-            debug("Caster response OK");
-            return true;
-        }
-        if (responseSpot == 512 - 1)
-            break;
-        yield();
-    }
-    response[responseSpot] = '\0';
-
-    errorf("Failed to verify server response: %s", response);
-    return false;
 }
 
 [[noreturn]] void NTRIPTask(void *pvParameter) {
