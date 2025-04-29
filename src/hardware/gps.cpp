@@ -307,11 +307,23 @@ bool updateGPSStatus() {
     bool response = false;
     disable_fast_uart();
     UBX_CFG_TMODE3_data_t tmode3_data;
-    response = myGNSS.getSurveyMode(&tmode3_data, 5000);
+    //auto start_time = millis();
+    const int maxRetries = 5;
+    const int retryTimeout = 1000; // 1 second timeout
+    
+    for (int retry = 0; retry < maxRetries; retry++) {
+        response = myGNSS.getSurveyMode(&tmode3_data, retryTimeout); 
+        if (response) {
+            break; // Success, exit the retry loop
+        }
+    }
+    
     if (!response) {
         error("GPS - Failed to get Survey-in mode.");
+        enable_fast_uart();
         return false;
     }
+    //debugf("Getting Survey-in mode took %d ms", millis() - start_time);
     enable_fast_uart();
     currentGPSStatus.gpsMode = static_cast<GPSMode>(tmode3_data.flags.bits.mode);
 
