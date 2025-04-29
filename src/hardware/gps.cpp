@@ -33,7 +33,7 @@ bool updateGPSStatus();
 void initializeGPS() {
     disable_fast_uart();
     bool resp = false;
-    info("Initializing GPS...");
+    debug("Initializing GPS...");
     for (const int test_baud : test_bauds) {
         debugf("Testing baud rate: %d", test_baud);
         Serial1.end();

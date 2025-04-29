@@ -310,8 +310,6 @@ body {
     }
 }
 
-/* Add these new styles */
-
 /* Loading indicator */
 .loading-overlay {
     background: rgba(255, 255, 255, 0.9);
@@ -433,6 +431,13 @@ body {
 
 .log-info {
     background-color: rgba(54, 185, 204, 0.1);
+}
+
+/* Log table timestamp column */
+.log-table th:first-child,
+.log-table td:first-child {
+    min-width: 180px;
+    white-space: nowrap;
 }
 
 /* Status indicators */

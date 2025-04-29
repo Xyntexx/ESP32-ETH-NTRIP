@@ -24,7 +24,7 @@ String getLevelString(LogLevel level) {
 
 String getLog()
 {
-  String response = "{\"log\":[";
+  String response = "{\"timestamp\":" + String(millis()) + ",\"log\":[";
   bool firstEntry = true;
 
   // Build JSON array of logs

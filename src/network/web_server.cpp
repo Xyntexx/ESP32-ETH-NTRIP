@@ -79,7 +79,7 @@ String calculateUptime(unsigned long milliseconds) {
 // Start web server
 void initializeWebServer()
 {
-    info("Starting webserver");
+    debug("Starting webserver");
     server.begin();
 
     for (const auto & webpage : webpages)
@@ -100,7 +100,11 @@ void initializeWebServer()
                   serializeJson(settings, message);
                   request->send(200, "text/plain", message); });
     server.on("/log", HTTP_GET, [](AsyncWebServerRequest *request)
-              { request->send(200, "text/plain", getLog()); });
+              { 
+                  // Get log string that already includes timestamp
+                  String logJson = getLog();
+                  request->send(200, "application/json", logJson); 
+              });
     // Start Survey-in mode
     server.on("/startSurvey", HTTP_GET, [](AsyncWebServerRequest *request) {
         // Check if time parameter is provided
