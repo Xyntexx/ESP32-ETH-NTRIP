@@ -3,10 +3,12 @@ from os import getenv
 from sys import argv
 from time import sleep
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, Tuple, BinaryIO
+from typing import Optional, Dict, Any, Tuple, BinaryIO, List
 import logging
 import struct
 import io
+import statistics
+import time
 
 from pygnssutils import VERBOSITY_MEDIUM, GNSSNTRIPClient, set_logging
 from pyrtcm import RTCMReader, RTCMMessage, RTCMTypeError
@@ -99,11 +101,22 @@ class RTCMChecker(io.BufferedWriter):
         self.total_messages = 0
         self._stream = io.BytesIO()
         self._reader = RTCMReader(self._stream)
+        
+        # Interval tracking
+        self.interval_deviations: List[float] = []
+        self.last_stats_time = time.time()
 
     def write(self, data: bytes) -> int:
         """Process incoming RTCM data."""
         self.buffer += data
         self._process_buffer()
+        
+        # Check if it's time to print stats (every minute)
+        current_time = time.time()
+        if current_time - self.last_stats_time >= 60:
+            self._print_stats()
+            self.last_stats_time = current_time
+            
         return len(data)
 
     def flush(self) -> None:
@@ -113,6 +126,25 @@ class RTCMChecker(io.BufferedWriter):
     def close(self) -> None:
         """Close the checker."""
         pass
+        
+    def _print_stats(self) -> None:
+        """Print statistics about message intervals."""
+        if not self.interval_deviations:
+            self._logger.info("No interval data collected yet.")
+            return
+            
+        max_deviation = max(self.interval_deviations)
+        median_deviation = statistics.median(self.interval_deviations)
+        
+        self._logger.info(
+            f"INTERVAL STATS | "
+            f"Max distance from 1s: {max_deviation:.4f}s | "
+            f"Median distance from 1s: {median_deviation:.4f}s | "
+            f"Sample size: {len(self.interval_deviations)}"
+        )
+        
+        # Reset for next minute
+        self.interval_deviations = []
 
     def _process_buffer(self) -> None:
         """Process the current buffer for complete RTCM messages."""
@@ -169,6 +201,13 @@ class RTCMChecker(io.BufferedWriter):
         # Check message interval
         message_interval = datetime.now() - last_message_received.get(msg_type, datetime.now())
         last_message_received[msg_type] = datetime.now()
+        
+        # Skip calculating the first interval for each message type (it's not meaningful)
+        if msg_type in last_message_received and msg_type != "1230":
+            # Calculate the distance from 1 second
+            interval_secs = message_interval.total_seconds()
+            deviation = abs(interval_secs - 1.0)
+            self.interval_deviations.append(deviation)
 
         # Log if interval is outside expected range (except for type 1230)
         if not timedelta(seconds=0.9) < message_interval < timedelta(seconds=1.1) and msg_type != "1230":
