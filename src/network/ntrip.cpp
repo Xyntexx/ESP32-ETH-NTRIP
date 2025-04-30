@@ -62,14 +62,14 @@ String getErrorMessage(NTRIPError error) {
     }
 }
 
-bool verifyServerResponse(WiFiClient& client) {
+NTRIPError verifyServerResponse(WiFiClient& client) {
     // Wait for response with timeout
     unsigned long timeout = millis();
     while (client.available() == 0) {
         if ((unsigned long)(millis() - timeout) > connectionTimeout) {
             error("Client Timeout");
             client.stop(); // Ensure client is properly stopped
-            return false;
+            return NTRIPError::TIMEOUT;
         }
         delay(10);
         yield();
@@ -99,7 +99,15 @@ bool verifyServerResponse(WiFiClient& client) {
                     yield();
                 }
                 debug("Caster response OK");
-                return true;
+                return NTRIPError::NONE;
+            }
+            
+            // Check for authentication errors
+            if (strstr(response, "401 Unauthorized") || 
+                strstr(response, "403 Forbidden")) {
+                errorf("Authentication failed: %s", response);
+                client.stop();
+                return NTRIPError::AUTH_FAILED;
             }
         }
         yield();
@@ -110,7 +118,7 @@ bool verifyServerResponse(WiFiClient& client) {
 
     errorf("Failed to verify server response: %s", response);
     client.stop(); // Ensure client is properly stopped
-    return false;
+    return NTRIPError::INVALID_RESPONSE;
 }
 
 void handleError(bool isPrimary, NTRIPError error) {
@@ -140,7 +148,7 @@ void handleError(bool isPrimary, NTRIPError error) {
 
 bool stopNTRIP(WiFiClient& client, bool isPrimary)
 {
-    info(isPrimary ? "Disconnecting primary NTRIP..." : "Disconnecting secondary NTRIP...");
+    debug(isPrimary ? "Disconnecting primary NTRIP..." : "Disconnecting secondary NTRIP...");
 
     client.stop();
     infof("NTRIP %s - Disconnected", isPrimary ? "Primary" : "Secondary");
@@ -187,8 +195,6 @@ NTRIPError checkConnectionHealth(WiFiClient& client, NTRIPStatus& status, bool i
 
 // Handle all RTCM Checking related things. If return is true, the NTRIP connection should be opened or continued. if false, the NTRIP connection should be closed immediately.
 NTRIPError RTCMCheck() {
-    const unsigned long currentMillis = millis();
-
     // If RTCM checks are disabled, always allow connection
     if (!settings["rtcmChk"].as<bool>()) {
         return NTRIPError::NONE;
@@ -201,9 +207,9 @@ NTRIPError RTCMCheck() {
     }
 
     // If we haven't received RTCM data in the timeout period, don't allow connection
-    if ((unsigned long)(currentMillis - lastRtcmData_ms) > maxTimeBeforeHangup_ms) {
+    if ((unsigned long)(millis() - lastRtcmData_ms) > maxTimeBeforeHangup_ms) {
         debugf("NTRIP - RTCM timeout: last data %lu ms ago", 
-              (unsigned long)(currentMillis - lastRtcmData_ms));
+              (unsigned long)(millis() - lastRtcmData_ms));
         return NTRIPError::RTCM_TIMEOUT;
     }
 
@@ -317,7 +323,7 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     const char* pw = isPrimary ? settings["rtk_mntpnt_pw1"] : settings["rtk_mntpnt_pw2"];
     const char* mnt = isPrimary ? settings["rtk_mntpnt1"] : settings["rtk_mntpnt2"];
 
-    infof("NTRIP %s - Attempting connection to %s:%d", isPrimary ? "Primary" : "Secondary", host, port);
+    debugf("NTRIP %s - Attempting connection to %s:%d", isPrimary ? "Primary" : "Secondary", host, port);
 
     if (client.connect(host, port, connectionTimeout)) {
         constexpr int SERVER_BUFFER_SIZE = 1024;
@@ -329,7 +335,9 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
         client.write(serverBuffer, strlen(serverBuffer));
 
         // Wait for and verify response
-        if (verifyServerResponse(client)) {
+        NTRIPError responseError = verifyServerResponse(client);
+        
+        if (responseError == NTRIPError::NONE) {
             status.connected = true;
             status.reconnectAttempts = 0; // Reset attempts on successful connection
             status.lastError = "";
@@ -339,7 +347,7 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             return true;
         } else {
             // Connection failed during verification
-            handleError(isPrimary, NTRIPError::INVALID_RESPONSE);
+            handleError(isPrimary, responseError);
             return false;
         }
     } else {

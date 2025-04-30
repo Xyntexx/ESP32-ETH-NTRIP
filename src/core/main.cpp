@@ -28,25 +28,25 @@ void setup()
 
     // Read settings
     readSettings();
-    info("Settings loaded");
+    debug("Settings loaded");
 
     // Initialize Ethernet
     initializeEthernet();
-    info("Ethernet initialized");
+    debug("Ethernet initialized");
 
     // Initialize UDP logging after Ethernet is up
     initUDPLogging();
 
     // Initialize WebServer
     initializeWebServer();
-    info("Web server initialized");
+    debug("Web server initialized");
 
     // Initialize GPS
     initializeGPS();
-    info("GPS initialized");
+    debug("GPS initialized");
 
     ntrip_handle_init();
-    info("NTRIP initialized");
+    debug("NTRIP initialized");
 
     info("System ready");
 }
