@@ -205,11 +205,13 @@ NTRIPError RTCMCheck() {
         return NTRIPError::SURVEY_IN_ACTIVE;
     }
 
+    auto last_rtcm_data_ms = lastRtcmData_ms;
+    auto time_now_ms = millis();
+
     // If we haven't received RTCM data in the timeout period, don't allow connection
-    if ((unsigned long)(millis() - lastRtcmData_ms) > maxTimeBeforeHangup_ms) {
-        debugf("NTRIP - RTCM timeout: last data %lu ms ago", 
-              (unsigned long)(millis() - lastRtcmData_ms));
-        debugf("time now %lu. time last %lu", millis(), lastRtcmData_ms);
+    if (time_now_ms - last_rtcm_data_ms > maxTimeBeforeHangup_ms) {
+        debugf("NTRIP - RTCM timeout: last data %lu ms ago", time_now_ms - last_rtcm_data_ms);
+        debugf("time now %lu. time last %lu", time_now_ms, last_rtcm_data_ms);
         return NTRIPError::RTCM_TIMEOUT;
     }
 
@@ -317,6 +319,13 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
         return true;
     }
 
+    // Check if RTCM data is available
+    NTRIPError rtcmError = RTCMCheck();
+    if (rtcmError != NTRIPError::NONE) {
+        handleError(isPrimary, rtcmError);
+        return false; // Don't attempt to connect if RTCM check fails
+    }
+
     // If we get here, we should attempt to connect
     const char* host = isPrimary ? settings["casterHost1"] : settings["casterHost2"];
     uint16_t port = isPrimary ? settings["casterPort1"].as<uint16_t>() : settings["casterPort2"].as<uint16_t>();
@@ -342,7 +351,6 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             status.reconnectAttempts = 0; // Reset attempts on successful connection
             status.lastError = "";
             status.connectionOpenedAt = millis();
-            lastRtcmData_ms = millis(); // Initialize RTCM data timestamp on new connection
             infof("NTRIP %s - Connected to %s", isPrimary ? "Primary" : "Secondary", host);
             return true;
         } else {
@@ -374,10 +382,6 @@ void ntrip_handle_init() {
     infof("NTRIP: Primary %s, Secondary %s",
           settings["enableCaster1"].as<bool>() ? "Enabled" : "Disabled",
           settings["enableCaster2"].as<bool>() ? "Enabled" : "Disabled");
-    
-    // Initialize the lastRtcmData_ms to prevent immediate disconnection
-    // on startup when RTCM checks are enabled
-    lastRtcmData_ms = millis();
 
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
                 nullptr, // Task parameters
