@@ -2,12 +2,10 @@ name: Build and Release Firmware
 
 on:
   push:
+    branches:
+      - feature/test_github_actions
     tags:
-      - 'v*'  # Only run release workflow on version tags like v1.0.0
-  pull_request:
-  push:
-    branches: [main]
-
+      - 'v*'
 jobs:
   build:
     runs-on: ubuntu-latest
