@@ -102,22 +102,20 @@ bool configureGPS() {
     }
 
     // Enable necessary RTCM sentences
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1005, COM_PORT_UART1,
-                                         1);  // Enable message 1005 to output through UART2, message every second
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1074, COM_PORT_UART1, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1084, COM_PORT_UART1, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1094, COM_PORT_UART1, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1124, COM_PORT_UART1, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1230, COM_PORT_UART1, 10);  // Enable message every 10 seconds
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1005, COM_PORT_UART1, 10);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1077, COM_PORT_UART1, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1087, COM_PORT_UART1, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1097, COM_PORT_UART1, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1127, COM_PORT_UART1, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1230, COM_PORT_UART1, 10);
 
     // Enable RTCM messages on USB
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1005, COM_PORT_USB,
-                                         1);  // Enable message 1005 to output through UART2, message every second
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1074, COM_PORT_USB, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1084, COM_PORT_USB, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1094, COM_PORT_USB, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1124, COM_PORT_USB, 1);
-    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1230, COM_PORT_USB, 10);  // Enable message every 10 seconds
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1005, COM_PORT_USB, 10);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1077, COM_PORT_USB, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1087, COM_PORT_USB, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1097, COM_PORT_USB, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1127, COM_PORT_USB, 1);
+    response &= myGNSS.enableRTCMmessage(UBX_RTCM_1230, COM_PORT_USB, 10);
 
     if (response == false) {
         error("GPS - Failed to enable RTCM.");

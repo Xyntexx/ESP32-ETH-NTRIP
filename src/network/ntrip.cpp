@@ -24,7 +24,6 @@ constexpr int connectionStabilityTimeout_ms = 5000;  // Time to wait before cons
 NTRIPStatus NtripPrimaryStatus   = {false, 0,  "", 0, 0};
 NTRIPStatus NtripSecondaryStatus = {false, 0,  "", 0, 0};
 unsigned long lastReport_ms      = 0;
-unsigned long lastRtcmCheck_ms   = 0;
 unsigned long lastRtcmData_ms    = 0;  // Track when we last received RTCM data
 
 
@@ -210,6 +209,7 @@ NTRIPError RTCMCheck() {
     if ((unsigned long)(millis() - lastRtcmData_ms) > maxTimeBeforeHangup_ms) {
         debugf("NTRIP - RTCM timeout: last data %lu ms ago", 
               (unsigned long)(millis() - lastRtcmData_ms));
+        debugf("time now %lu. time last %lu", millis(), lastRtcmData_ms);
         return NTRIPError::RTCM_TIMEOUT;
     }
 
