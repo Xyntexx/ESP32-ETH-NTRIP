@@ -6,6 +6,7 @@ on:
       - 'v*'
 jobs:
   build:
+    name: Build and Release ESP Firmware
     runs-on: ubuntu-latest
 
     steps:
@@ -25,14 +26,36 @@ jobs:
     - name: Build firmware
       run: pio run
 
+    - name: Extract tag and repo name
+      id: vars
+      run: |
+        echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        echo "repo=${GITHUB_REPOSITORY##*/}" >> $GITHUB_OUTPUT
+
     - name: Archive firmware
       run: |
         mkdir -p firmware
-        cp .pio/build/*/*.bin firmware/ || true
+        TAG=${{ steps.vars.outputs.tag }}
+        REPO=${{ steps.vars.outputs.repo }}
+
+        cp .pio/build/*/bootloader.bin firmware/${REPO}-bootloader-${TAG}.bin || true
+        cp .pio/build/*/firmware.bin firmware/${REPO}-firmware-${TAG}.bin || true
+        cp .pio/build/*/partitions.bin firmware/${REPO}-partitions-${TAG}.bin || true
+
 
     - name: Upload release assets
       uses: softprops/action-gh-release@v2
       with:
         files: firmware/*
+        body: |
+          When updating from a previous version using OTA, only using firmware.bin is needed.
+          
+          Addresses for manual flashing:
+          - Bootloader:   0x0
+          - Partitions:   0x8000
+          - Application:  0x10000
+          After OTA update, the application might at 0x150000. Clear otadata partition at 0xe000-0x10000 to reset the selected application to 0x10000.
+          To keep the settings stored in the NVS, do not erase the NVS partition at 0x9000-0xe000.
+
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
