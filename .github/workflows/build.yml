@@ -2,8 +2,6 @@ name: Build and Release Firmware
 
 on:
   push:
-    branches:
-      - feature/test_github_actions
     tags:
       - 'v*'
 jobs:
@@ -28,13 +26,11 @@ jobs:
       run: pio run
 
     - name: Archive firmware
-      if: startsWith(github.ref, 'refs/tags/')
       run: |
         mkdir -p firmware
         cp .pio/build/*/*.bin firmware/ || true
 
     - name: Upload release assets
-      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         files: firmware/*
