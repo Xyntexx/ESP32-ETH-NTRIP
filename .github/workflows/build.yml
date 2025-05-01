@@ -1,0 +1,44 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'  # Only run release workflow on version tags like v1.0.0
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install PlatformIO
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+
+    - name: Build firmware
+      run: pio run
+
+    - name: Archive firmware
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        mkdir -p firmware
+        cp .pio/build/*/*.bin firmware/ || true
+
+    - name: Upload release assets
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: firmware/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
