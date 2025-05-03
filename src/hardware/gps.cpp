@@ -3,6 +3,7 @@
 #include "utils/log.h"
 #include "utils/settings.h"
 #include <SparkFun_u-blox_GNSS_Arduino_Library.h>
+#include <core/defines.h>
 
 SFE_UBLOX_GNSS myGNSS;
 
@@ -57,9 +58,9 @@ void initializeGPS() {
         gpsInitTime = millis();
     }
     // Start task
-    xTaskCreate(gps_uart_check_task, "gps_uart_check_task", 10000, nullptr, configMAX_PRIORITIES - 2, nullptr);
+    xTaskCreate(gps_uart_check_task, "gps_uart_check_task", 10000, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
     delay(1000);
-    xTaskCreate(gpsStatusTask, "gpsStatusTask", 4096, nullptr, configMAX_PRIORITIES - 3, nullptr);
+    xTaskCreate(gpsStatusTask, "gpsStatusTask", 4096, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
 }
 
 bool configureGPS() {
