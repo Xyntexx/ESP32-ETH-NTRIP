@@ -385,7 +385,7 @@ void ntrip_handle_init() {
 
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
                 nullptr, // Task parameters
-                1, // Task priority
+                NTRIP_TASK_PRIORITY, // Task priority
                 nullptr // Task handle
     );
 }

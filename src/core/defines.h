@@ -19,4 +19,12 @@
 #define FIRMWARE_VERSION "0.41.2"  // Update this when you release new versions
 #define BUILD_DATE __DATE__ " " __TIME__
 
+#define GPS_STATUS_TASK_PRIORITY configMAX_PRIORITIES - 3 //     = 22
+#define GPS_UART_CHECK_TASK_PRIORITY configMAX_PRIORITIES - 2 // = 23
+#define NTRIP_TASK_PRIORITY 1 //                                 =  1
+#define WEB_SERVER_TASK_PRIORITY 10 //                           = 10
+// AsyncTCP task priority                                        =  3
+// W6100 task priority (rx)                                      =  1
+
+
 #endif // DEFINES_H_
