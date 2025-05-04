@@ -4,6 +4,7 @@
 #include "hardware/gps.h"
 #include <WebServer_ESP32_SC_W6100.hpp>
 #include "utils/log.h"
+#include "rtcmbuffer.h"
 
 
 // Primary connection
@@ -26,6 +27,7 @@ NTRIPStatus NtripSecondaryStatus = {false, 0,  "", 0, 0};
 unsigned long lastReport_ms      = 0;
 unsigned long lastRtcmData_ms    = 0;  // Track when we last received RTCM data
 
+bool ntrip_inited = false;
 
 [[noreturn]] void NTRIPTask(void *pvParameter);
 
@@ -365,29 +367,33 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     }
 }
 
-void SFE_UBLOX_GNSS::processRTCM(uint8_t incoming)
-{
-    lastRtcmData_ms = millis();
+void send_rtcm(const uint8_t *data, const int len) {
     if (NtripPrimaryStatus.connected) {
-        client.write(incoming); // Send data to NTRIP client
-        NtripPrimaryStatus.bytesSent++;
+        client.write(data, len);
+        NtripPrimaryStatus.bytesSent += len;
     }
     if (NtripSecondaryStatus.connected) {
-        client2.write(incoming); // Send data to NTRIP client
-        NtripSecondaryStatus.bytesSent++;
+        client2.write(data, len);
+        NtripSecondaryStatus.bytesSent += len;
     }
 }
 
-void ntrip_handle_init() {
-    infof("NTRIP: Primary %s, Secondary %s",
-          settings["enableCaster1"].as<bool>() ? "Enabled" : "Disabled",
-          settings["enableCaster2"].as<bool>() ? "Enabled" : "Disabled");
+void SFE_UBLOX_GNSS::processRTCM(uint8_t incoming) {
+    if (!ntrip_inited) {
+        return;
+    }
+    rtcmbuffer::process_byte(incoming,&send_rtcm);
+    lastRtcmData_ms = millis();
+}
 
+void ntrip_handle_init() {
+    rtcmbuffer::init();
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
                 nullptr, // Task parameters
                 NTRIP_TASK_PRIORITY, // Task priority
                 nullptr // Task handle
     );
+    ntrip_inited = true;
 }
 
 [[noreturn]] void NTRIPTask(void *pvParameter) {
