@@ -1,0 +1,151 @@
+//
+// Created by Markus on 3.5.2025.
+//
+
+#include "rtcmbuffer.h"
+#include "utils/log.h"
+
+#define MAX_RTCM_LEN 1030
+
+namespace rtcmbuffer {
+
+struct time_since {
+    int msg_type;
+    unsigned long time;
+};
+
+time_since time_since_array[10];
+int time_since_index = 0;
+
+
+void print_and_update_time_since(const int msg_type) {
+    for (int i = 0; i < time_since_index; i++) {
+        if (time_since_array[i].msg_type == msg_type) {
+            unsigned long current_time = millis();
+            unsigned long elapsed_time = current_time - time_since_array[i].time;
+            USBSerial.printf("RTCM %d interval %lu ms", msg_type, elapsed_time);
+            time_since_array[i].time = current_time;
+            return;
+        }
+    }
+    if (time_since_index < 10) {
+        time_since_array[time_since_index].msg_type = msg_type;
+        time_since_array[time_since_index].time = millis();
+        time_since_index++;
+    }
+}
+
+#define MAX_BUFFER_LEN 256
+
+uint8_t rtcm_buffer[MAX_BUFFER_LEN];
+int rtcm_index = 0;
+int rtcm_length = 0;
+bool in_message = false;
+uint32_t running_crc = 0;
+int msg_type = 0;
+
+
+// CRC24Q lookup table
+uint32_t crc24q_table[256];
+
+void init_crc24q_table() {
+    for (int i = 0; i < 256; i++) {
+        uint32_t crc = i << 16;
+        for (int j = 0; j < 8; j++) {
+            crc <<= 1;
+            if (crc & 0x1000000)
+                crc ^= 0x1864CFB;
+        }
+        crc24q_table[i] = crc & 0xFFFFFF;
+    }
+}
+
+void init() {
+    init_crc24q_table();
+}
+
+
+void update_crc(uint8_t byte) {
+    uint8_t idx = ((running_crc >> 16) ^ byte) & 0xFF;
+    running_crc = ((running_crc << 8) ^ crc24q_table[idx]) & 0xFFFFFF;
+}
+
+int parse_rtcm_length(uint8_t *buf) {
+    return ((buf[1] & 0x03) << 8) | buf[2];
+}
+
+int get_rtcm_message_type(const uint8_t *payload) {
+    return (payload[0] << 4) | (payload[1] >> 4);
+}
+
+
+void forward_buffer(const uint8_t *data, int len, void (*forward_func)(const uint8_t *, int)) {
+    if (len >= 6 && data[0] == 0xD3) {
+        msg_type = get_rtcm_message_type(&data[3]);
+        //print_and_update_time_since(msg_type);
+        if (forward_func) {
+            forward_func(data, len);
+        }
+    }
+}
+
+void reset_buffer() {
+    rtcm_index = 0;
+    rtcm_length = 0;
+    in_message = false;
+    running_crc = 0;
+    memset(rtcm_buffer, 0, sizeof(rtcm_buffer));
+}
+
+void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
+    if (!in_message) {
+        if (byte == 0xD3) {
+            in_message = true;
+            rtcm_index = 0;
+            running_crc = 0;
+            rtcm_buffer[rtcm_index++] = byte;
+        }
+        return;
+    }
+
+    if (rtcm_index >= MAX_BUFFER_LEN) {
+        forward_buffer(rtcm_buffer, rtcm_index, forward_func);
+        reset_buffer();
+        return;
+    }
+
+    rtcm_buffer[rtcm_index] = byte;
+
+    if (rtcm_index >= 3 && rtcm_index < rtcm_length + 3) {
+        update_crc(byte);  // only update CRC for bytes before last 3
+    }
+
+    rtcm_index++;
+
+    if (rtcm_index == 3) {
+        rtcm_length = parse_rtcm_length(rtcm_buffer);
+        if (rtcm_length > 1023) {
+            printf("RTCM length error");
+            reset_buffer();
+            return;
+        }
+        // Include first 3 header bytes in CRC
+        update_crc(rtcm_buffer[0]);
+        update_crc(rtcm_buffer[1]);
+        update_crc(rtcm_buffer[2]);
+    }
+
+    if (rtcm_index == rtcm_length + 6) { // Complete message
+        uint32_t expected_crc = (rtcm_buffer[rtcm_index - 3] << 16) |
+                                (rtcm_buffer[rtcm_index - 2] << 8) |
+                                 rtcm_buffer[rtcm_index - 1];
+
+        if (running_crc == expected_crc) {
+            forward_buffer(rtcm_buffer, rtcm_index, forward_func);
+        } else {
+            debugf("RTCM CRC error");
+        }
+        reset_buffer();
+    }
+}
+}
