@@ -9,6 +9,7 @@
 #include "utils/settings.h"
 #include "network/ntrip.h"
 #include "utils/system_status.h"
+#include "WebServer_ESP32_SC_W6100.h"
 
 constexpr unsigned long UPTIME_PRINT_INTERVAL = 300000; // 5 minutes
 unsigned long lastUptimePrint = 0;

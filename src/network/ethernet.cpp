@@ -1,5 +1,6 @@
 #include "ethernet.h"
 #include "utils/log.h"
+#include "w6100/esp32_sc_w6100.h"
 
 // MAC addresses configuration
 const byte mac[][NUMBER_OF_MAC] =

@@ -1,54 +1,57 @@
 #include <Arduino.h>
 #include "core/defines.h"
 
-#include "AsyncWebServer_ESP32_SC_W6100.h"
-
 #include "hardware/gps.h"
 #include "utils/settings.h"
 #include <http_parser.h>
 #include "ntrip.h"
+#include "ethernet.h"
 #include "web_server.h"
 #include <Update.h>
 #include "utils/system_status.h"
 #include "utils/log.h"
 
 // HTTP Related
-AsyncWebServer server(80);
+WebServer server(80);
 
-
-static void notFound(AsyncWebServerRequest *request)
+static void notFound()
 {
-    request->send(404, "text/plain", "Not found");
+    debugf("Not found: %s", server.uri().c_str());
+    server.send(404, "text/plain", "Not found");
 }
 
 // Add these handler functions before initializeWebServer()
-void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-    if (!index) {
+void handleUpdateRequest() {
+    server.send(200, "text/plain", "Ready for OTA update");
+}
+
+void handleFileUpload() {
+    HTTPUpload& upload = server.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
         // Start update
-        debugf("Update Start: %s", filename.c_str());
+        debugf("Update Start: %s", upload.filename.c_str());
         info("OTA: Starting update");
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             Update.printError(USBSerial);
-            request->send(400, "text/plain", "OTA start failed");
+            server.send(400, "text/plain", "OTA start failed");
             return;
         }
-    }
-
-    // Write update chunk
-    if (Update.write(data, len) != len) {
-        Update.printError(USBSerial);
-        request->send(400, "text/plain", "OTA write failed");
-        return;
-    }
-
-    if (final) {
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        // Write update chunk
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            Update.printError(USBSerial);
+            server.send(400, "text/plain", "OTA write failed");
+            return;
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
         if (!Update.end(true)) {
             Update.printError(USBSerial);
-            request->send(400, "text/plain", "OTA end failed");
+            server.send(400, "text/plain", "OTA end failed");
             return;
         }
         info("OTA: Update successful");
-        request->send(200, "text/plain", "Update successful. Rebooting...");
+        server.send(200, "text/plain", "Update successful. Rebooting...");
         delay(500);
         ESP.restart();
     }
@@ -76,6 +79,15 @@ String calculateUptime(unsigned long milliseconds) {
     return String(uptimeStr);
 }
 
+[[noreturn]] void WebServerTask(void *pvParameters)
+{
+    for (;;)
+    {
+        server.handleClient();
+        delay(1);
+    }
+}
+
 // Start web server
 void initializeWebServer()
 {
@@ -84,46 +96,48 @@ void initializeWebServer()
 
     for (const auto & webpage : webpages)
     {
-        server.on(webpage.filename, HTTP_GET, [&webpage](AsyncWebServerRequest *request)
-                  { request->send(200, webpage.content_type, (const char *)webpage.data); });
+        server.on(webpage.filename, HTTP_GET, [&webpage]()
+                  { server.send(200, webpage.content_type, (const char *)webpage.data); });
     }
 
-    server.on("/restart", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/restart", HTTP_GET, []()
               {
-                request->send(200, "text/html", "message");
+                server.send(200, "text/html", "message");
                 info("Rebooting...");
                 ESP.restart(); });
 
-    server.on("/getSettings", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/getSettings", HTTP_GET, []()
               {
                   String message;
                   serializeJson(settings, message);
-                  request->send(200, "text/plain", message); });
-    server.on("/log", HTTP_GET, [](AsyncWebServerRequest *request)
-              { 
+                  server.send(200, "text/plain", message); });
+    server.on("/log", HTTP_GET, []()
+              {
                   // Get log string that already includes timestamp
                   String logJson = getLog();
-                  request->send(200, "application/json", logJson); 
+                  server.send(200, "application/json", logJson);
               });
     // Start Survey-in mode
-    server.on("/startSurvey", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/startSurvey", HTTP_GET, []() {
         // Check if time parameter is provided
-        if (request->hasParam("time")) {
-            currentGPSStatus.requestedSurveyTime = request->getParam("time")->value().toInt();
+        if (server.hasArg("time")) {
+            auto time = server.arg("time");
+            currentGPSStatus.requestedSurveyTime = time.toInt();
         }
 
         // Check if accuracy parameter is provided
-        if (request->hasParam("accuracy")) {
-            currentGPSStatus.requestedSurveyAccuracy = request->getParam("accuracy")->value().toFloat();
+        if (server.hasArg("accuracy")) {
+            auto accuracy = server.arg("accuracy");
+            currentGPSStatus.requestedSurveyAccuracy = accuracy.toFloat();
         }
 
         infof("Survey-in parameters set: %d seconds, %.2f meters",
               currentGPSStatus.requestedSurveyTime,
               currentGPSStatus.requestedSurveyAccuracy);
-        request->send(200, "text/plain", "Survey parameters saved");
+        server.send(200, "text/plain", "Survey parameters saved");
     });
 
-    server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/status", HTTP_GET, []()
               {
                   String message;
                   StaticJsonDocument<512> status;
@@ -171,39 +185,41 @@ void initializeWebServer()
                   status["gpsMode"] = currentGPSStatus.gpsModeString;
 
                   serializeJson(status, message);
-                  request->send(200, "application/json", message);
+                  server.send(200, "application/json", message);
               });
 
-    server.on("/applySettings", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/applySettings", HTTP_GET, []() {
       info("Applying settings");
       String inputMessage;
       // Param count
-      size_t param_count = request->params();
+      size_t param_count = server.args();
       for (int i = 0; i < param_count; i++) {
-        AsyncWebParameter *h = request->getParam(i);
-        debugf("Param %s: %s", h->name().c_str(), h->value().c_str());
-        writeSettings(h->name(), h->value());
+        auto name = server.argName(i);
+          auto value = server.arg(i);
+        debugf("Param %s: %s", name.c_str(), value.c_str());
+        writeSettings(name, value);
       }
 
       delay(100);
 
-      request->send(200, "text/plain", inputMessage);
+      server.send(200, "text/plain", inputMessage);
 
       ESP.restart();
     });
 
-    server.on("/stopSurvey", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/stopSurvey", HTTP_GET, []() {
         stopSurveyMode();  // Implement this function to stop the survey
         info("Survey stopped");
-        request->send(200, "text/plain", "Survey stopped");
+        server.send(200, "text/plain", "Survey stopped");
     });
 
-    server.on("/update", HTTP_POST,
-        [](AsyncWebServerRequest *request) {
-            // The response will be sent when the upload is complete
-        },
-        handleUpload
-    );
+    server.on("/update", HTTP_GET, handleUpdateRequest);
+    server.on("/update", HTTP_POST, []() {
+        // The first handler responds with "OK" at the completion of the upload
+        server.send(200, "text/plain", "Update complete");
+    }, handleFileUpload);
 
     server.onNotFound(notFound);
+
+    xTaskCreate(WebServerTask, "WebServerTask", 8192, NULL, 10, NULL);
 }
