@@ -212,8 +212,7 @@ NTRIPError RTCMCheck() {
 
     // If we haven't received RTCM data in the timeout period, don't allow connection
     if (time_now_ms - last_rtcm_data_ms > maxTimeBeforeHangup_ms) {
-        debugf("NTRIP - RTCM timeout: last data %lu ms ago", time_now_ms - last_rtcm_data_ms);
-        debugf("time now %lu. time last %lu", time_now_ms, last_rtcm_data_ms);
+        debugf("NTRIP - RTCM timeout: last data %lu ms ago. Timestamp:%lu Prev RTCM:%lu", time_now_ms - last_rtcm_data_ms,time_now_ms, last_rtcm_data_ms);
         return NTRIPError::RTCM_TIMEOUT;
     }
 
