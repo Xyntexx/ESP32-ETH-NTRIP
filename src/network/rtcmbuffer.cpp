@@ -23,7 +23,7 @@ void print_and_update_time_since(const int msg_type) {
         if (time_since_array[i].msg_type == msg_type) {
             unsigned long current_time = millis();
             unsigned long elapsed_time = current_time - time_since_array[i].time;
-            USBSerial.printf("RTCM %d interval %lu ms", msg_type, elapsed_time);
+            USBSerial.printf("[%lu] RTCM %d interval %lu ms", current_time, msg_type, elapsed_time);
             time_since_array[i].time = current_time;
             return;
         }
