@@ -3,7 +3,7 @@
 
 #include <core/defines.h>
 #include <Arduino.h>
-#include <AsyncWebServer_ESP32_SC_W6100.h>
+#include <WebServer_ESP32_SC_W6100.hpp>
 
 // MAC addresses configuration
 #define NUMBER_OF_MAC 20
