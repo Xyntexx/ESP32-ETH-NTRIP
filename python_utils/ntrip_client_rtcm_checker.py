@@ -203,14 +203,14 @@ class RTCMChecker(io.BufferedWriter):
         last_message_received[msg_type] = datetime.now()
         
         # Skip calculating the first interval for each message type (it's not meaningful)
-        if msg_type in last_message_received and msg_type != "1230":
+        if msg_type in last_message_received and msg_type not in ["1230", "1005"]:
             # Calculate the distance from 1 second
             interval_secs = message_interval.total_seconds()
             deviation = abs(interval_secs - 1.0)
             self.interval_deviations.append(deviation)
 
         # Log if interval is outside expected range (except for type 1230)
-        if not timedelta(seconds=0.9) < message_interval < timedelta(seconds=1.1) and msg_type != "1230":
+        if not timedelta(seconds=0.9) < message_interval < timedelta(seconds=1.1) and msg_type not in ["1230", "1005"]:
             self._logger.info(
                 f"RTCM {msg_type} |"
                 f"Interval: {message_interval.total_seconds():.2f} s | "
