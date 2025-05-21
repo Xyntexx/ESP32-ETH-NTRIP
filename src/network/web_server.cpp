@@ -151,6 +151,7 @@ void initializeWebServer()
                   // Add NTRIP connection status
                   status["enableCaster1"] = settings["enableCaster1"].as<bool>();
                   status["enableCaster2"] = settings["enableCaster2"].as<bool>();
+                  status["ntripVersion"] = settings["ntripVersion"].as<int>();
 
                   // Use connection opened times for status
                   status["ntripConnected1"] = NtripPrimaryStatus.connected;
@@ -204,6 +205,32 @@ void initializeWebServer()
 
       server.send(200, "text/plain", inputMessage);
 
+      ESP.restart();
+    });
+
+    // Add POST handler for applySettings
+    server.on("/applySettings", HTTP_POST, []() {
+      info("Applying settings via POST");
+      String inputMessage;
+      
+      // Handle POST data
+      if (server.hasArg("plain")) {
+        // Handle raw POST data
+        inputMessage = server.arg("plain");
+        debugf("Raw POST data: %s", inputMessage.c_str());
+      } else {
+        // Handle form data
+        size_t param_count = server.args();
+        for (int i = 0; i < param_count; i++) {
+          auto name = server.argName(i);
+          auto value = server.arg(i);
+          debugf("Param %s: %s", name.c_str(), value.c_str());
+          writeSettings(name, value);
+        }
+      }
+
+      delay(100);
+      server.send(200, "text/plain", "Settings applied");
       ESP.restart();
     });
 

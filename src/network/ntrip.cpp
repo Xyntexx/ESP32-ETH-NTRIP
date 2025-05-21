@@ -6,6 +6,55 @@
 #include "utils/log.h"
 #include "rtcmbuffer.h"
 
+// Base64 encoding table
+const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Simple base64 encoding function
+String base64_encode(const String& input) {
+    String result;
+    int i = 0;
+    int j = 0;
+    unsigned char char_array_3[3];
+    unsigned char char_array_4[4];
+    int in_len = input.length();
+    const char* bytes_to_encode = input.c_str();
+
+    while (in_len--) {
+        char_array_3[i++] = *(bytes_to_encode++);
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+
+            for(i = 0; i < 4; i++) {
+                result += base64_table[char_array_4[i]];
+            }
+            i = 0;
+        }
+    }
+
+    if (i) {
+        for(j = i; j < 3; j++) {
+            char_array_3[j] = '\0';
+        }
+
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+        char_array_4[3] = char_array_3[2] & 0x3f;
+
+        for (j = 0; j < i + 1; j++) {
+            result += base64_table[char_array_4[j]];
+        }
+
+        while((i++ < 3)) {
+            result += '=';
+        }
+    }
+
+    return result;
+}
 
 // Primary connection
 WiFiClient client;
@@ -31,7 +80,7 @@ bool ntrip_inited = false;
 
 [[noreturn]] void NTRIPTask(void *pvParameter);
 
-bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, bool isPrimary);
+bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrimary);
 
 enum class NTRIPError {
     NONE,
@@ -331,16 +380,43 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     const char* host = isPrimary ? settings["casterHost1"] : settings["casterHost2"];
     uint16_t port = isPrimary ? settings["casterPort1"].as<uint16_t>() : settings["casterPort2"].as<uint16_t>();
     const char* pw = isPrimary ? settings["rtk_mntpnt_pw1"] : settings["rtk_mntpnt_pw2"];
+    const char* user = isPrimary ? settings["rtk_mntpnt_user1"] : settings["rtk_mntpnt_user2"];
     const char* mnt = isPrimary ? settings["rtk_mntpnt1"] : settings["rtk_mntpnt2"];
+    int ntripVersion = settings["ntripVersion"].as<int>();
 
-    debugf("NTRIP %s - Attempting connection to %s:%d", isPrimary ? "Primary" : "Secondary", host, port);
+    debugf("NTRIP %s - Attempting connection to %s:%d (Version %d)", isPrimary ? "Primary" : "Secondary", host, port, ntripVersion);
 
     if (client.connect(host, port, connectionTimeout)) {
         constexpr int SERVER_BUFFER_SIZE = 1024;
         char serverBuffer[SERVER_BUFFER_SIZE];
-        snprintf(serverBuffer, SERVER_BUFFER_SIZE,
-            "SOURCE %s /%s\r\nSource-Agent: NTRIP %s/App Version %s\r\n\r\n",
-            pw, mnt, settings["ntrip_sName"].as<const char*>(), FIRMWARE_VERSION);
+        
+        if (ntripVersion == 2) {
+            // NTRIP Rev 2.0: Use HTTP/1.1 POST with Basic Auth
+            String auth = String(user) + ":" + String(pw);
+            String base64Auth = base64_encode(auth);
+
+            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+                "POST /%s HTTP/1.1\r\n"
+                "Host: %s\r\n"
+                "User-Agent: NTRIP %s/App Version %s\r\n"
+                "Authorization: Basic %s\r\n"
+                "Ntrip-Version: Ntrip/2.0\r\n"
+                "Connection: close\r\n\r\n",
+                mnt, host,
+                settings["ntrip_sName"].as<const char*>(),
+                FIRMWARE_VERSION,
+                base64Auth.c_str()
+            );
+        } else {
+            // NTRIP Rev 1.0: Custom 'SOURCE' method
+            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+                "SOURCE %s /%s\r\n"
+                "Source-Agent: NTRIP %s/App Version %s\r\n\r\n",
+                pw, mnt,
+                settings["ntrip_sName"].as<const char*>(),
+                FIRMWARE_VERSION
+            );
+        }
 
         client.write(serverBuffer, strlen(serverBuffer));
 
@@ -367,13 +443,34 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
 }
 
 void send_rtcm(const uint8_t *data, const int len) {
-    if (NtripPrimaryStatus.connected) {
-        client.write(data, len);
-        NtripPrimaryStatus.bytesSent += len;
-    }
-    if (NtripSecondaryStatus.connected) {
-        client2.write(data, len);
-        NtripSecondaryStatus.bytesSent += len;
+    int ntripVersion = settings["ntripVersion"].as<int>();
+    if (ntripVersion == 2) {
+        // Format as HTTP chunked transfer
+        char chunkHeader[10];
+        snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", len);  // hex length + CRLF
+
+        if (NtripPrimaryStatus.connected) {
+            client.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
+            client.write(data, len);
+            client.write("\r\n", 2);
+            NtripPrimaryStatus.bytesSent += len;
+        }
+        if (NtripSecondaryStatus.connected) {
+            client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
+            client2.write(data, len);
+            client2.write("\r\n", 2);
+            NtripSecondaryStatus.bytesSent += len;
+        }
+    } else {
+        // NTRIP 1.0: send raw RTCM data
+        if (NtripPrimaryStatus.connected) {
+            client.write(data, len);
+            NtripPrimaryStatus.bytesSent += len;
+        }
+        if (NtripSecondaryStatus.connected) {
+            client2.write(data, len);
+            NtripSecondaryStatus.bytesSent += len;
+        }
     }
 }
 

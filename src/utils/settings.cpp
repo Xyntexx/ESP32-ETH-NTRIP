@@ -23,7 +23,32 @@ bool readSettings()
   settings["rtk_mntpnt2"] = preferences.getString("rtk_mntpnt2", "");
   settings["rtk_mntpnt_pw1"] = preferences.getString("rtk_mntpnt_pw1", "");
   settings["rtk_mntpnt_pw2"] = preferences.getString("rtk_mntpnt_pw2", "");
+
+  // Try new key names first, then fall back to old key names
+  String user1 = preferences.getString("user1", "");
+  if (user1.isEmpty()) {
+    user1 = preferences.getString("rtk_mntpnt_user1", "");
+    if (!user1.isEmpty()) {
+      // Migrate old key to new key
+      preferences.putString("user1", user1);
+      preferences.remove("rtk_mntpnt_user1");
+    }
+  }
+  settings["rtk_mntpnt_user1"] = user1;
+
+  String user2 = preferences.getString("user2", "");
+  if (user2.isEmpty()) {
+    user2 = preferences.getString("rtk_mntpnt_user2", "");
+    if (!user2.isEmpty()) {
+      // Migrate old key to new key
+      preferences.putString("user2", user2);
+      preferences.remove("rtk_mntpnt_user2");
+    }
+  }
+  settings["rtk_mntpnt_user2"] = user2;
+
   settings["rtcmChk"] = preferences.getBool("rtcmChk", true);
+  settings["ntripVersion"] = preferences.getInt("ntripVersion", 1);  // Default to 1 if not set
   settings["ecefX"] = preferences.getLong64("ecefX", 0);
   settings["ecefY"] = preferences.getLong64("ecefY", 0);
   settings["ecefZ"] = preferences.getLong64("ecefZ", 0);
@@ -49,6 +74,14 @@ bool writeSettings(String name, String value)
 
   debugf("Writing setting %s: %s", name.c_str(), value.c_str());
 
+  // Add length validation for username fields
+  if (name == "rtk_mntpnt_user1" || name == "rtk_mntpnt_user2") {
+    if (value.length() > 15) { // Limit username to 15 characters
+      errorf("Username too long (max 15 chars): %s", value.c_str());
+      value = value.substring(0, 15);
+    }
+  }
+
   if (name == "casterPort1" || name == "casterPort2")
   {
     uint16_t portValue = (uint16_t)value.toInt();
@@ -61,6 +94,12 @@ bool writeSettings(String name, String value)
     debugf("Converting to bool: %d", boolValue);
     const char* key = (name == "rtcmChk") ? "rtcmChk" : name.c_str();
     preferences.putBool(key, boolValue);
+  }
+  else if (name == "ntripVersion")
+  {
+    int version = value.toInt();
+    debugf("Converting to NTRIP version: %d", version);
+    preferences.putInt("ntripVersion", version);
   }
   else if (name == "ecefX" || name == "ecefY" || name == "ecefZ")
   {
@@ -90,7 +129,20 @@ bool writeSettings(String name, String value)
   }
   else
   {
-    preferences.putString(name.c_str(), value);
+    // Use shorter key names for username fields
+    if (name == "rtk_mntpnt_user1") {
+      preferences.putString("user1", value);
+      // Remove old key if it exists
+      preferences.remove("rtk_mntpnt_user1");
+    }
+    else if (name == "rtk_mntpnt_user2") {
+      preferences.putString("user2", value);
+      // Remove old key if it exists
+      preferences.remove("rtk_mntpnt_user2");
+    }
+    else {
+      preferences.putString(name.c_str(), value);
+    }
   }
 
   preferences.end();

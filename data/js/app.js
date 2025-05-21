@@ -330,6 +330,7 @@ function updateCasterFields(isPrimary, enabled) {
         `casterHost${suffix}`,
         `casterPort${suffix}`,
         `rtk_mntpnt${suffix}`,
+        `rtk_mntpnt_user${suffix}`,
         `rtk_mntpnt_pw${suffix}`
     ];
     
@@ -367,9 +368,11 @@ function updateFormValues(data) {
         // Update primary caster settings
         safeSetValue('enableCaster1', data.enableCaster1);
         safeSetValue('ntrip_sName', data.ntrip_sName);
+        safeSetValue('ntripVersion', data.ntripVersion === 2); // Convert version number to boolean
         safeSetValue('casterHost1', data.casterHost1);
         safeSetValue('casterPort1', data.casterPort1);
         safeSetValue('rtk_mntpnt1', data.rtk_mntpnt1);
+        safeSetValue('rtk_mntpnt_user1', data.rtk_mntpnt_user1);
         safeSetValue('rtk_mntpnt_pw1', data.rtk_mntpnt_pw1);
         
         // Update secondary caster settings
@@ -377,6 +380,7 @@ function updateFormValues(data) {
         safeSetValue('casterHost2', data.casterHost2);
         safeSetValue('casterPort2', data.casterPort2);
         safeSetValue('rtk_mntpnt2', data.rtk_mntpnt2);
+        safeSetValue('rtk_mntpnt_user2', data.rtk_mntpnt_user2);
         safeSetValue('rtk_mntpnt_pw2', data.rtk_mntpnt_pw2);
         
         // Update RTCM checks setting - handle both string 'on' and boolean true
@@ -418,6 +422,7 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
     
     // Add all basic fields
     formData.append('ntrip_sName', document.getElementById('ntrip_sName').value);
+    formData.append('ntripVersion', document.getElementById('ntripVersion').checked ? '2' : '1'); // Convert boolean to version number
     
     // Add enable flags for both casters and RTCM checks
     formData.append('enableCaster1', document.getElementById('enableCaster1').checked ? 'on' : '');
@@ -439,6 +444,7 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
         formData.append('casterHost1', document.getElementById('casterHost1').value);
         formData.append('casterPort1', document.getElementById('casterPort1').value);
         formData.append('rtk_mntpnt1', document.getElementById('rtk_mntpnt1').value);
+        formData.append('rtk_mntpnt_user1', document.getElementById('rtk_mntpnt_user1').value);
         formData.append('rtk_mntpnt_pw1', document.getElementById('rtk_mntpnt_pw1').value);
     }
     
@@ -447,6 +453,7 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
         formData.append('casterHost2', document.getElementById('casterHost2').value);
         formData.append('casterPort2', document.getElementById('casterPort2').value);
         formData.append('rtk_mntpnt2', document.getElementById('rtk_mntpnt2').value);
+        formData.append('rtk_mntpnt_user2', document.getElementById('rtk_mntpnt_user2').value);
         formData.append('rtk_mntpnt_pw2', document.getElementById('rtk_mntpnt_pw2').value);
     }
     
@@ -457,7 +464,10 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
     // Send the form data
     fetch('/applySettings', {
         method: 'POST',
-        body: formData
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(formData)
     })
     .then(response => {
         if (!response.ok) {

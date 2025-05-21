@@ -95,6 +95,17 @@
                     <div class="form-group">
                         <div class="switch-container">
                             <label class="switch">
+                                <input type="checkbox" id="ntripVersion" name="ntripVersion">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label">Use NTRIP 2.0</span>
+                        </div>
+                        <small>Enable NTRIP 2.0 protocol (default is NTRIP 1.0).</small>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="switch-container">
+                            <label class="switch">
                                 <input type="checkbox" id="enableRtcmChecks" name="rtcmChk">
                                 <span class="slider"></span>
                             </label>
@@ -152,6 +163,11 @@
                             <small>RTK2go Mount point.</small>
                         </div>
                         <div class="form-group">
+                            <label for="rtk_mntpnt_user1">RTK2go username</label>
+                            <input type="text" id="rtk_mntpnt_user1" name="rtk_mntpnt_user1" maxlength="15" required>
+                            <small>RTK2go username (required for NTRIP 2.0, max 15 characters).</small>
+                        </div>
+                        <div class="form-group">
                             <label for="rtk_mntpnt_pw1">RTK2go password</label>
                             <div class="password-container">
                                 <input type="password" id="rtk_mntpnt_pw1" name="rtk_mntpnt_pw1" required>
@@ -189,6 +205,11 @@
                             <label for="rtk_mntpnt2">RTK2go mountpoint</label>
                             <input type="text" id="rtk_mntpnt2" name="rtk_mntpnt2" required>
                             <small>Backup RTK2go Mount point.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="rtk_mntpnt_user2">RTK2go username</label>
+                            <input type="text" id="rtk_mntpnt_user2" name="rtk_mntpnt_user2" maxlength="15" required>
+                            <small>RTK2go username (required for NTRIP 2.0, max 15 characters).</small>
                         </div>
                         <div class="form-group">
                             <label for="rtk_mntpnt_pw2">RTK2go password</label>
