@@ -1,4 +1,5 @@
 #include "ethernet.h"
+#include "core/defines.h"
 #include "utils/log.h"
 #include "w6100/esp32_sc_w6100.h"
 

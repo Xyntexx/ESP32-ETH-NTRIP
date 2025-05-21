@@ -17,16 +17,7 @@ unsigned long lastUptimePrint = 0;
 // Create UDP stream instance
 UDPStream udpStream;
 
-void setup()
-{
-    startupTime = millis();  // Record startup time
-
-    // Initialize basic logging first
-    initLogging();
-
-    // Log system startup
-    info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
-
+bool initialize_systems() {
     // Read settings
     readSettings();
     debug("Settings loaded");
@@ -43,13 +34,34 @@ void setup()
     debug("Web server initialized");
 
     // Initialize GPS
-    initializeGPS();
+    if (!initializeGPS()) {
+        error("Failed to initialize GPS");
+        return false;
+    }
     debug("GPS initialized");
-
     ntrip_handle_init();
     debug("NTRIP initialized");
+    return true;
+}
 
-    info("System ready");
+void setup()
+{
+    startupTime = millis();  // Record startup time
+
+    // Initialize basic logging first
+    initLogging();
+
+    // Log system startup
+    info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
+
+    if (!initialize_systems())
+    {
+        error("System initialization failed");
+    }else
+    {
+        info("System initialization successful");
+    }
+
 }
 
 void loop()
