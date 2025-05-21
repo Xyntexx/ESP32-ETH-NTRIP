@@ -9,15 +9,17 @@ SFE_UBLOX_GNSS myGNSS;
 
 constexpr int GPS_RX_PIN = 0;
 constexpr int GPS_TX_PIN = 1;
-constexpr size_t test_bauds_len = 3;
-constexpr int test_bauds[test_bauds_len] = {38400, 115200, 230400};
-constexpr int selected_baud = 115200;
+constexpr size_t test_bauds_len = 4;
+constexpr int test_bauds[test_bauds_len] = {38400, 115200, 230400, 460800};
+constexpr int selected_baud = 460800;
 
 bool gpsConnected = false;
 unsigned long gpsInitTime;
 String gpsStatusSting;
 
 GPSStatusStruct currentGPSStatus;
+
+GPSMode getGpsMode();
 
 [[noreturn]] void gpsStatusTask(void *pvParameters);
 [[noreturn]] void gps_uart_check_task(void *pvParameters);
@@ -31,7 +33,7 @@ void enable_fast_uart();
 bool configureGPS();
 bool updateGPSStatus();
 
-void initializeGPS() {
+bool initializeGPS() {
     disable_fast_uart();
     bool resp = false;
     debug("Initializing GPS...");
@@ -49,7 +51,7 @@ void initializeGPS() {
     if (!resp) {
         error("GPS - Not detected");
         gpsConnected = false;
-        return;
+        return false;
     }
     // Configure the GPS module
     gpsConnected = configureGPS();
@@ -61,6 +63,7 @@ void initializeGPS() {
     xTaskCreate(gps_uart_check_task, "gps_uart_check_task", 10000, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
     delay(1000);
     xTaskCreate(gpsStatusTask, "gpsStatusTask", 4096, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
+    return true;
 }
 
 bool configureGPS() {
@@ -164,7 +167,9 @@ bool configureGPS() {
         debug("GPS - Module configuration complete");
         result = true;
     }
-    fast_uart_handle = true;
+    currentGPSStatus.gpsMode = getGpsMode(); //sets fast uart_handle to false
+    enable_fast_uart();
+
     return result;
 }
 
@@ -187,6 +192,7 @@ bool startSurveyMode(uint16_t observationTime, float requiredAccuracy) {
     // response = myGNSS.setSurveyMode(0, 0, 0);  // Disable survey mode
     if (response == false) {
         error("GPS - Failed to stop Survey-in mode.");
+        currentGPSStatus.gpsMode = getGpsMode();
         enable_fast_uart();
         return false;
     }
@@ -199,10 +205,12 @@ bool startSurveyMode(uint16_t observationTime, float requiredAccuracy) {
     // accuracy
     if (response == false) {
         error("GPS - Failed to set Survey-in mode.");
+        currentGPSStatus.gpsMode = getGpsMode();
         enable_fast_uart();
         return false;
     }
     info("GPS - Survey-in mode started.");
+    currentGPSStatus.gpsMode = getGpsMode();
     return true;
 }
 
@@ -218,6 +226,7 @@ void stopSurveyMode() {
     } else {
         info("GPS - Survey-in mode stopped.");
     }
+    currentGPSStatus.gpsMode = getGpsMode();
     enable_fast_uart();
 }
 
@@ -247,6 +256,7 @@ bool saveSurveyPosition() {
         } else {
             info("GPS - Static position set.");
         }
+        currentGPSStatus.gpsMode = getGpsMode();
         enable_fast_uart();
         return true;
     }
@@ -303,31 +313,13 @@ bool updateGPSStatus() {
     currentGPSStatus.surveyInMeanAccuracy = myGNSS.getSurveyInMeanAccuracy();
     currentGPSStatus.satellites = myGNSS.getSIV();
 
-    bool response = false;
-    disable_fast_uart();
-    UBX_CFG_TMODE3_data_t tmode3_data;
-    //auto start_time = millis();
-    const int maxRetries = 5;
-    const int retryTimeout = 1000; // 1 second timeout
-    
-    for (int retry = 0; retry < maxRetries; retry++) {
-        response = myGNSS.getSurveyMode(&tmode3_data, retryTimeout); 
-        if (response) {
-            break; // Success, exit the retry loop
-        }
-    }
-    
-    if (!response) {
-        error("GPS - Failed to get Survey-in mode.");
+    if (currentGPSStatus.gpsMode == GPSMode::UNKNOWN) {
+        disable_fast_uart();
+        currentGPSStatus.gpsMode = getGpsMode();
         enable_fast_uart();
-        return false;
     }
-    //debugf("Getting Survey-in mode took %d ms", millis() - start_time);
-    enable_fast_uart();
-    currentGPSStatus.gpsMode = static_cast<GPSMode>(tmode3_data.flags.bits.mode);
 
     gpsStatusSting = gpsStatusString(currentGPSStatus);
-
     currentGPSStatus.gpsModeString = gpsStatusSting.c_str();
 
     // If survey-in mode has just completed, save the position
@@ -367,4 +359,26 @@ void disable_fast_uart() {
             vTaskDelay(1);
         }
     }
+}
+
+GPSMode getGpsMode() {
+    bool response = false;
+    UBX_CFG_TMODE3_data_t tmode3_data;
+    //auto start_time = millis();
+    const int maxRetries = 5;
+    const int retryTimeout = 1000; // 1 second timeout
+
+    for (int retry = 0; retry < maxRetries; retry++) {
+        response = myGNSS.getSurveyMode(&tmode3_data, retryTimeout);
+        if (response) {
+            break; // Success, exit the retry loop
+        }
+    }
+
+    if (!response) {
+        error("GPS - Failed to get Survey-in mode.");
+        return GPSMode::UNKNOWN;
+    }
+    //debugf("Getting Survey-in mode took %d ms", millis() - start_time);
+    return static_cast<GPSMode>(tmode3_data.flags.bits.mode);
 }
