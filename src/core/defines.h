@@ -3,6 +3,24 @@
 #define LOGSerial USBSerial
 #define DEBUG_ASYNC_WEBSERVER_PORT     LOGSerial
 
+// Undefine W6100 library defaults before setting custom GPIO pins
+#ifdef MISO_GPIO
+#undef MISO_GPIO
+#endif
+#ifdef MOSI_GPIO
+#undef MOSI_GPIO
+#endif
+#ifdef SCK_GPIO
+#undef SCK_GPIO
+#endif
+#ifdef CS_GPIO
+#undef CS_GPIO
+#endif
+#ifdef INT_GPIO
+#undef INT_GPIO
+#endif
+
+// Custom GPIO pin configuration for this hardware
 #define MISO_GPIO           6
 #define MOSI_GPIO           7
 #define SCK_GPIO            5
