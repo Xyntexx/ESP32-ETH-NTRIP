@@ -27,7 +27,7 @@ jobs:
       run: pio test -e native
 
     - name: Build firmware
-      run: pio run
+      run: pio run -e esp32-c3
 
     - name: Extract tag and repo name
       id: vars
