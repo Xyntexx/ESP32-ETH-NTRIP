@@ -48,8 +48,8 @@ String getLog()
 void addToLog(const String& input, LogLevel level)
 {
     // Format the message with timestamp and level
-    String formattedMessage = "[" + getLevelString(level) + "] " + input;
-    
+    String formattedMessage = "[" + String(millis()) + "][" + getLevelString(level) + "] " + input;
+
     // Always send to output stream (USBSerial/UDP)
     OutputStream::println(formattedMessage);
 

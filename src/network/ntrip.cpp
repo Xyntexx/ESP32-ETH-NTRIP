@@ -377,27 +377,9 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
         return false;
     }
 
-    // Validate connection state consistency
-    bool clientConnected = client.connected();
-    bool statusConnected = status.connected;
-
-    // If there's a mismatch, trust the actual client state
-    if (clientConnected != statusConnected) {
-        warning(isPrimary ? "Primary connection state mismatch - synchronizing" :
-                           "Secondary connection state mismatch - synchronizing");
-        if (!clientConnected && statusConnected) {
-            // Client disconnected but status thinks it's connected - update status
-            status.connected = false;
-            status.connectionOpenedAt = 0;
-        } else if (clientConnected && !statusConnected) {
-            // Client connected but status thinks it's not - shouldn't happen, but sync
-            status.connected = true;
-            status.connectionOpenedAt = millis();
-        }
-    }
-
-    // If already connected, nothing to do
-    if (clientConnected) {
+    // If already connected according to status, nothing to do
+    // Don't call client.connected() here as it can return false during writes
+    if (status.connected) {
         return true;
     }
 
@@ -565,8 +547,12 @@ void ntrip_handle_init() {
         return;
     }
 
-    // Initialize health check timer to current time to prevent immediate firing
-    lastHealthCheck_ms = millis();
+    // Initialize timers to current time
+    unsigned long currentTime = millis();
+    lastHealthCheck_ms = currentTime;  // Prevent immediate health check
+    // Set lastRtcmData_ms far in the past so RTCM check will fail until real data arrives
+    // Using ULONG_MAX causes overflow to look like ~4.2 billion ms ago
+    lastRtcmData_ms = currentTime - maxTimeBeforeHangup_ms - 1000;
 
     rtcmbuffer::init();
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
