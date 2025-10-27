@@ -239,10 +239,10 @@ NTRIPError checkConnectionHealth(WiFiClient& client, NTRIPStatus& status, bool i
     }
 
     // After stability period, check if the client is still connected
-    // NOTE: Only check this when NOT actively sending data, as client.connected()
-    // can temporarily return false during write operations
-    if (!client.connected()) {
-        handleError(isPrimary, NTRIPError::CONNECTION_FAILED);
+    // NOTE: client.connected() can temporarily return false during write operations.
+    // Only check available() as well to ensure it's a real disconnect.
+    if (!client.connected() && client.available() == 0) {
+        // Don't call handleError here - let the caller handle it to avoid duplicate error messages
         return NTRIPError::CONNECTION_FAILED;
     }
 
@@ -564,6 +564,9 @@ void ntrip_handle_init() {
         error("Failed to create NTRIP status mutex");
         return;
     }
+
+    // Initialize health check timer to current time to prevent immediate firing
+    lastHealthCheck_ms = millis();
 
     rtcmbuffer::init();
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
