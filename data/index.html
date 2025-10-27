@@ -106,20 +106,20 @@
                     <h3 class="subsection-title">Station Position (ECEF)</h3>
                     <div class="form-group">
                         <label for="ecefX">ECEF X (cm)</label>
-                        <input type="number" id="ecefX" name="ecefX" step="0.01" required>
-                        <small>Earth-Centered Earth-Fixed X coordinate in centimeters with 0.1mm precision.</small>
+                        <input type="number" id="ecefX" name="ecefX" step="0.01" min="-700000" max="700000" required>
+                        <small>Earth-Centered Earth-Fixed X coordinate in centimeters (±7000 km max).</small>
                     </div>
 
                     <div class="form-group">
                         <label for="ecefY">ECEF Y (cm)</label>
-                        <input type="number" id="ecefY" name="ecefY" step="0.01" required>
-                        <small>Earth-Centered Earth-Fixed Y coordinate in centimeters with 0.1mm precision.</small>
+                        <input type="number" id="ecefY" name="ecefY" step="0.01" min="-700000" max="700000" required>
+                        <small>Earth-Centered Earth-Fixed Y coordinate in centimeters (±7000 km max).</small>
                     </div>
 
                     <div class="form-group">
                         <label for="ecefZ">ECEF Z (cm)</label>
-                        <input type="number" id="ecefZ" name="ecefZ" step="0.01" required>
-                        <small>Earth-Centered Earth-Fixed Z coordinate in centimeters with 0.1mm precision.</small>
+                        <input type="number" id="ecefZ" name="ecefZ" step="0.01" min="-700000" max="700000" required>
+                        <small>Earth-Centered Earth-Fixed Z coordinate in centimeters (±7000 km max).</small>
                     </div>
 
                     <h3 class="subsection-title">Primary NTRIP Connection</h3>
@@ -147,8 +147,8 @@
                         </div>
                         <div class="form-group">
                             <label for="casterPort1">Caster Port</label>
-                            <input type="number" id="casterPort1" name="casterPort1" required>
-                            <small>Port of the Caster server.</small>
+                            <input type="number" id="casterPort1" name="casterPort1" min="1" max="65535" required>
+                            <small>Port of the Caster server (1-65535).</small>
                         </div>
                     </div>
 
@@ -198,8 +198,8 @@
                         </div>
                         <div class="form-group">
                             <label for="casterPort2">Caster Port</label>
-                            <input type="number" id="casterPort2" name="casterPort2" required>
-                            <small>Port of the backup Caster server.</small>
+                            <input type="number" id="casterPort2" name="casterPort2" min="1" max="65535" required>
+                            <small>Port of the backup Caster server (1-65535).</small>
                         </div>
                     </div>
 
