@@ -1,0 +1,7 @@
+.gitignore
+.pio
+.vscode
+.idea
+.claude
+*.local.*
+debug_tools/
