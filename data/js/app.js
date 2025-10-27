@@ -241,6 +241,8 @@ function indexStart() {
     resetLoading();
     fetchSettings();
     initOtaUpdate();
+    initVersionToggles();
+    initCasterToggles(); // Initialize caster toggle event listeners
     
     // Initial status update
     updateStatus();
@@ -334,6 +336,28 @@ function updateCasterFields(isPrimary, enabled) {
         `rtk_mntpnt_pw${suffix}`
     ];
     
+    // Handle version toggle separately
+    const versionToggle = document.getElementById(`ntripVersion${suffix}`);
+    if (versionToggle) {
+        // Remove disabled attribute if enabled, add it if disabled
+        if (enabled) {
+            versionToggle.removeAttribute('disabled');
+        } else {
+            versionToggle.setAttribute('disabled', '');
+        }
+        
+        // Update the switch container's appearance
+        const switchContainer = versionToggle.closest('.switch-container');
+        if (switchContainer) {
+            if (enabled) {
+                switchContainer.classList.remove('disabled');
+            } else {
+                switchContainer.classList.add('disabled');
+            }
+        }
+    }
+    
+    // Handle other fields
     fields.forEach(id => {
         const element = document.getElementById(id);
         if (element) {
@@ -348,6 +372,41 @@ function updateCasterFields(isPrimary, enabled) {
             }
         }
     });
+}
+
+// Add event listeners for caster enable toggles
+function initCasterToggles() {
+    const enableCaster1 = document.getElementById('enableCaster1');
+    const enableCaster2 = document.getElementById('enableCaster2');
+    
+    if (enableCaster1) {
+        enableCaster1.addEventListener('change', function() {
+            updateCasterFields(true, this.checked);
+        });
+    }
+    
+    if (enableCaster2) {
+        enableCaster2.addEventListener('change', function() {
+            updateCasterFields(false, this.checked);
+        });
+    }
+}
+
+function initVersionToggles() {
+    const version1Toggle = document.getElementById('ntripVersion1');
+    const version2Toggle = document.getElementById('ntripVersion2');
+    
+    if (version1Toggle) {
+        version1Toggle.addEventListener('change', function() {
+            console.log('Primary NTRIP version changed:', this.checked ? '2.0' : '1.0');
+        });
+    }
+    
+    if (version2Toggle) {
+        version2Toggle.addEventListener('change', function() {
+            console.log('Secondary NTRIP version changed:', this.checked ? '2.0' : '1.0');
+        });
+    }
 }
 
 function updateFormValues(data) {
@@ -368,7 +427,11 @@ function updateFormValues(data) {
         // Update primary caster settings
         safeSetValue('enableCaster1', data.enableCaster1);
         safeSetValue('ntrip_sName', data.ntrip_sName);
-        safeSetValue('ntripVersion', data.ntripVersion === 2); // Convert version number to boolean
+        
+        // Handle version settings
+        safeSetValue('ntripVersion1', data.ntripVersion1 === 2 || data.ntripVersion1 === '2' || data.ntripVersion1 === true);
+        safeSetValue('ntripVersion2', data.ntripVersion2 === 2 || data.ntripVersion2 === '2' || data.ntripVersion2 === true);
+        
         safeSetValue('casterHost1', data.casterHost1);
         safeSetValue('casterPort1', data.casterPort1);
         safeSetValue('rtk_mntpnt1', data.rtk_mntpnt1);
@@ -383,11 +446,10 @@ function updateFormValues(data) {
         safeSetValue('rtk_mntpnt_user2', data.rtk_mntpnt_user2);
         safeSetValue('rtk_mntpnt_pw2', data.rtk_mntpnt_pw2);
         
-        // Update RTCM checks setting - handle both string 'on' and boolean true
+        // Update RTCM checks setting
         safeSetValue('enableRtcmChecks', data.rtcmChk);
         
-        // Update ECEF coordinates - convert from 0.1mm precision integers to centimeters with 0.1mm precision
-        // Format: -12345678 (0.1mm units) represents -1234.5678 cm
+        // Update ECEF coordinates
         if (data.ecefX !== undefined) {
             const ecefX = parseFloat(data.ecefX) / 100;
             safeSetValue('ecefX', ecefX);
@@ -422,7 +484,8 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
     
     // Add all basic fields
     formData.append('ntrip_sName', document.getElementById('ntrip_sName').value);
-    formData.append('ntripVersion', document.getElementById('ntripVersion').checked ? '2' : '1'); // Convert boolean to version number
+    formData.append('ntripVersion1', document.getElementById('ntripVersion1').checked ? '2' : '1'); // Convert boolean to version number
+    formData.append('ntripVersion2', document.getElementById('ntripVersion2').checked ? '2' : '1'); // Convert boolean to version number
     
     // Add enable flags for both casters and RTCM checks
     formData.append('enableCaster1', document.getElementById('enableCaster1').checked ? 'on' : '');

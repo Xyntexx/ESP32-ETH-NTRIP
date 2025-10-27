@@ -11,11 +11,22 @@ public:
     int len;
 
     String() : data(nullptr), len(0) {}
+
+    // Constructor from C-string
     String(const char* str) {
         len = strlen(str);
         data = new char[len + 1];
         strcpy(data, str);
     }
+
+    // Constructor from buffer with explicit length (for binary data with null bytes)
+    String(const char* buffer, int length) {
+        len = length;
+        data = new char[len + 1];
+        memcpy(data, buffer, len);
+        data[len] = '\0';
+    }
+
     ~String() { if (data) delete[] data; }
 
     const char* c_str() const { return data ? data : ""; }
@@ -24,7 +35,7 @@ public:
     String& operator+=(char c) {
         char* new_data = new char[len + 2];
         if (data) {
-            strcpy(new_data, data);
+            memcpy(new_data, data, len);
             delete[] data;
         }
         new_data[len] = c;
@@ -165,13 +176,16 @@ void test_base64_long_string(void) {
 }
 
 void test_base64_binary_data(void) {
-    // Test with binary data (avoid null bytes which break strlen)
-    // Use explicit signed char to avoid narrowing conversion warnings
-    const char binary[] = {0x01, (char)0xFF, (char)0xAA, 0x55, 0x02};
-    String input(binary);
+    // Test with actual binary data including null bytes
+    const char binary[] = {0x00, (char)0xFF, (char)0xAA, 0x55, 0x00};
+    // Use length-based constructor to handle null bytes properly
+    String input(binary, 5);
     String result = base64_encode(input);
-    // Should not crash and produce valid output
-    TEST_ASSERT_TRUE(result.length() > 0);
+
+    // Expected: base64 of [0x00, 0xFF, 0xAA, 0x55, 0x00]
+    // Should produce "AP+qVQA=" (8 characters with padding)
+    TEST_ASSERT_EQUAL_INT(8, result.length());
+    TEST_ASSERT_EQUAL_STRING("AP+qVQA=", result.c_str());
 }
 
 int main(int argc, char **argv) {
