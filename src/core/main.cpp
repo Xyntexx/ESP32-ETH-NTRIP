@@ -77,10 +77,33 @@ void loop()
     // Current time for intervals
     unsigned long currentMillis = millis();
 
-    // Print system uptime periodically
+    // Print system uptime and task stack usage periodically
     if (currentMillis - lastUptimePrint >= UPTIME_PRINT_INTERVAL_MS) {
         lastUptimePrint = currentMillis;
         debug("System Uptime: " + getUptimeString());
+
+        // Monitor stack usage for all tasks (watermark = minimum free stack ever reached)
+        TaskHandle_t gpsStatusTaskHandle = xTaskGetHandle("gpsStatusTask");
+        TaskHandle_t gpsUartTaskHandle = xTaskGetHandle("gps_uart_check_task");
+        TaskHandle_t ntripTaskHandle = xTaskGetHandle("NTRIPTask");
+        TaskHandle_t webServerTaskHandle = xTaskGetHandle("WebServerTask");
+
+        if (gpsStatusTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(gpsStatusTaskHandle);
+            debugf("Stack watermark - gpsStatusTask: %u bytes free (configured: 4096)", watermark);
+        }
+        if (gpsUartTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(gpsUartTaskHandle);
+            debugf("Stack watermark - gps_uart_check_task: %u bytes free (configured: 10000)", watermark);
+        }
+        if (ntripTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(ntripTaskHandle);
+            debugf("Stack watermark - NTRIPTask: %u bytes free (configured: 8192)", watermark);
+        }
+        if (webServerTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(webServerTaskHandle);
+            debugf("Stack watermark - WebServerTask: %u bytes free (configured: 8192)", watermark);
+        }
     }
 
     // Use shorter delay for more responsive shutdown
