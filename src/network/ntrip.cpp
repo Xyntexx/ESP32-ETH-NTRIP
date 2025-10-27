@@ -238,14 +238,41 @@ NTRIPError checkConnectionHealth(WiFiClient& client, NTRIPStatus& status, bool i
         return NTRIPError::NONE;
     }
 
-    // After stability period, check if the client is still connected
-    // NOTE: client.connected() can temporarily return false during write operations.
-    // Only check available() as well to ensure it's a real disconnect.
+    // For NTRIP caster connections, we're uploading RTCM data TO the server.
+    // The TCP connection may appear idle between RTCM messages, so we should NOT
+    // use client.connected() for health checking as it's unreliable for upload-only streams.
+    //
+    // Instead, rely on:
+    // 1. Write failures (detected in send_rtcm)
+    // 2. RTCM timeout (handled by RTCMCheck)
+    // 3. Check if server has sent us data (error response or close notification)
+
+    // Check if server sent us any data (possibly error response)
+    if (client.available() > 0) {
+        char serverResponse[256];
+        int bytesRead = client.readBytesUntil('\n', serverResponse, sizeof(serverResponse) - 1);
+        if (bytesRead > 0) {
+            serverResponse[bytesRead] = '\0';
+            warningf("NTRIP %s - Server sent: %s", isPrimary ? "Primary" : "Secondary", serverResponse);
+
+            // If server sent data and connection is now closed, server initiated close
+            if (!client.connected()) {
+                errorf("NTRIP %s - Server closed connection", isPrimary ? "Primary" : "Secondary");
+                return NTRIPError::CONNECTION_FAILED;
+            }
+        }
+    }
+
+    // Check if connection is closed WITHOUT any pending data
+    // This means either: server sent FIN without data, or network error
     if (!client.connected() && client.available() == 0) {
-        // Don't call handleError here - let the caller handle it to avoid duplicate error messages
+        warningf("NTRIP %s - Connection closed (likely server-initiated or network issue)",
+                 isPrimary ? "Primary" : "Secondary");
         return NTRIPError::CONNECTION_FAILED;
     }
 
+    // Otherwise, trust the connection is alive
+    // Write failures will be caught at send time
     return NTRIPError::NONE;
 }
 
@@ -494,41 +521,67 @@ void send_rtcm(const uint8_t *data, const int len) {
         xSemaphoreGive(statusMutex);
 
         if (primaryConnected) {
+            size_t bytesWritten = 0;
             if (primaryVersion == 2) {
                 // Format as HTTP chunked transfer
                 char chunkHeader[10];
                 snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", len);
-                client.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
-                client.write(data, len);
-                client.write("\r\n", 2);
+                size_t headerWritten = client.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
+                size_t dataWritten = client.write(data, len);
+                size_t trailerWritten = client.write("\r\n", 2);
+
+                // Check if all writes succeeded
+                if (headerWritten != strlen(chunkHeader) || dataWritten != (size_t)len || trailerWritten != 2) {
+                    errorf("NTRIP Primary - Write failed: expected %d bytes, wrote %d",
+                           len + strlen(chunkHeader) + 2, headerWritten + dataWritten + trailerWritten);
+                    // Don't update bytesSent on failure
+                } else {
+                    bytesWritten = dataWritten;
+                }
             } else {
                 // NTRIP 1.0: send raw RTCM data
-                client.write(data, len);
+                bytesWritten = client.write(data, len);
+                if (bytesWritten != (size_t)len) {
+                    errorf("NTRIP Primary - Write failed: expected %d bytes, wrote %d", len, bytesWritten);
+                }
             }
 
-            // Update bytes sent with mutex protection
-            if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                NtripPrimaryStatus.bytesSent += len;
+            // Update bytes sent only if write succeeded
+            if (bytesWritten > 0 && xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                NtripPrimaryStatus.bytesSent += bytesWritten;
                 xSemaphoreGive(statusMutex);
             }
         }
 
         if (secondaryConnected) {
+            size_t bytesWritten = 0;
             if (secondaryVersion == 2) {
                 // Format as HTTP chunked transfer
                 char chunkHeader[10];
                 snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", len);
-                client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
-                client2.write(data, len);
-                client2.write("\r\n", 2);
+                size_t headerWritten = client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
+                size_t dataWritten = client2.write(data, len);
+                size_t trailerWritten = client2.write("\r\n", 2);
+
+                // Check if all writes succeeded
+                if (headerWritten != strlen(chunkHeader) || dataWritten != (size_t)len || trailerWritten != 2) {
+                    errorf("NTRIP Secondary - Write failed: expected %d bytes, wrote %d",
+                           len + strlen(chunkHeader) + 2, headerWritten + dataWritten + trailerWritten);
+                    // Don't update bytesSent on failure
+                } else {
+                    bytesWritten = dataWritten;
+                }
             } else {
                 // NTRIP 1.0: send raw RTCM data
-                client2.write(data, len);
+                bytesWritten = client2.write(data, len);
+                if (bytesWritten != (size_t)len) {
+                    errorf("NTRIP Secondary - Write failed: expected %d bytes, wrote %d", len, bytesWritten);
+                }
             }
 
-            // Update bytes sent with mutex protection
-            if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                NtripSecondaryStatus.bytesSent += len;
+            // Update bytes sent only if write succeeded
+            if (bytesWritten > 0 && xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                NtripSecondaryStatus.bytesSent += bytesWritten;
                 xSemaphoreGive(statusMutex);
             }
         }
