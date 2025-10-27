@@ -47,11 +47,13 @@ String getLog()
 
 void addToLog(const String& input, LogLevel level)
 {
-    // Format the message with timestamp and level
-    String formattedMessage = "[" + String(millis()) + "][" + getLevelString(level) + "] " + input;
+    // Format the message with level only
+    // Timestamp is added separately for serial/UDP output and JSON storage
+    String formattedMessage = "[" + getLevelString(level) + "] " + input;
 
-    // Always send to output stream (USBSerial/UDP)
-    OutputStream::println(formattedMessage);
+    // Add timestamp for serial/UDP output
+    String serialMessage = "[" + String(millis()) + "]" + formattedMessage;
+    OutputStream::println(serialMessage);
 
     // Only add to web log if level is INFO or higher
     if (level >= LogLevel::INFO) {
