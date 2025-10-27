@@ -488,7 +488,8 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             errorf("NTRIP request buffer overflow: needed %d bytes, have %d", bytesWritten, NTRIP_SERVER_BUFFER_SIZE);
             client.stop();
             status.connected = false;
-            return NTRIPError::BUFFER_OVERFLOW;
+            handleError(isPrimary, NTRIPError::BUFFER_OVERFLOW);
+            return false;
         }
 
         client.write(serverBuffer, strlen(serverBuffer));

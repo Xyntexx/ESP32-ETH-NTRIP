@@ -83,5 +83,6 @@ void loop()
         debug("System Uptime: " + getUptimeString());
     }
 
-    delay(1000);
+    // Use shorter delay for more responsive shutdown
+    delay(100);
 }

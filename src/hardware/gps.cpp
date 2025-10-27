@@ -15,7 +15,7 @@ constexpr int selected_baud = GPS_SELECTED_BAUD;
 
 bool gpsConnected = false;
 unsigned long gpsInitTime;
-String gpsStatusString;
+String gpsStatusSting;
 
 GPSStatusStruct currentGPSStatus;
 
@@ -319,8 +319,8 @@ bool updateGPSStatus() {
         enable_fast_uart();
     }
 
-    gpsStatusString = gpsStatusString(currentGPSStatus);
-    currentGPSStatus.gpsModeString = gpsStatusString.c_str();
+    gpsStatusSting = gpsStatusString(currentGPSStatus);
+    currentGPSStatus.gpsModeString = gpsStatusSting.c_str();
 
     // If survey-in mode has just completed, save the position
     if (prev_survey_in_active && !currentGPSStatus.surveyInActive) {
