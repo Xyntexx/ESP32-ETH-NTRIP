@@ -1,0 +1,3 @@
+// This test requires Arduino dependencies and mocks
+// Skipped for native testing
+// Use: pio test -e esp32-c3 -f test_rtcm_buffer (on hardware)

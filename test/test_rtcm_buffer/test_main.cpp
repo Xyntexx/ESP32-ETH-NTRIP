@@ -26,9 +26,9 @@ void reset_mock() {
     }
 }
 
-// Include the RTCM buffer implementation
-// Note: This would need to be refactored to separate pure logic from Arduino dependencies
-#include "../src/network/rtcmbuffer.h"
+// Include the RTCM buffer implementation (now isolated with UNIT_TEST guards)
+// Both rtcmbuffer.h and rtcmbuffer.cpp are copied to this test directory
+#include "rtcmbuffer.h"
 
 void setUp(void) {
     rtcmbuffer::init();
