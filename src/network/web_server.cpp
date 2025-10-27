@@ -25,6 +25,9 @@ void handleUpdateRequest() {
     server.send(200, "text/plain", "Ready for OTA update");
 }
 
+// Track OTA upload state to prevent processing after error
+static bool otaUploadFailed = false;
+
 void handleFileUpload() {
     HTTPUpload& upload = server.upload();
 
@@ -32,25 +35,55 @@ void handleFileUpload() {
         // Start update
         debugf("Update Start: %s", upload.filename.c_str());
         info("OTA: Starting update");
+        otaUploadFailed = false;
+
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            error("OTA: Failed to begin update");
             Update.printError(USBSerial);
-            server.send(400, "text/plain", "OTA start failed");
+            otaUploadFailed = true;
             return;
         }
     } else if (upload.status == UPLOAD_FILE_WRITE) {
+        // Skip write if previous operation failed
+        if (otaUploadFailed) {
+            return;
+        }
+
         // Write update chunk
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            error("OTA: Write failed");
             Update.printError(USBSerial);
-            server.send(400, "text/plain", "OTA write failed");
+            Update.abort();  // Abort the update to prevent partial writes
+            otaUploadFailed = true;
             return;
         }
     } else if (upload.status == UPLOAD_FILE_END) {
+        // Check if upload had errors
+        if (otaUploadFailed) {
+            error("OTA: Upload failed - aborting");
+            Update.abort();
+            return;
+        }
+
         if (!Update.end(true)) {
+            error("OTA: Failed to finalize update");
             Update.printError(USBSerial);
-            server.send(400, "text/plain", "OTA end failed");
+            Update.abort();
             return;
         }
         info("OTA: Update successful");
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        error("OTA: Upload aborted");
+        Update.abort();
+        otaUploadFailed = true;
+    }
+}
+
+// Update the POST handler to check for errors
+void handleUpdateComplete() {
+    if (otaUploadFailed) {
+        server.send(500, "text/plain", "Update failed. Check logs for details.");
+    } else {
         server.send(200, "text/plain", "Update successful. Rebooting...");
         delay(500);
         ESP.restart();
@@ -151,7 +184,8 @@ void initializeWebServer()
                   // Add NTRIP connection status
                   status["enableCaster1"] = settings["enableCaster1"].as<bool>();
                   status["enableCaster2"] = settings["enableCaster2"].as<bool>();
-                  status["ntripVersion"] = settings["ntripVersion"].as<int>();
+                  status["ntripVersion1"] = settings["ntripVersion1"].as<int>();
+                  status["ntripVersion2"] = settings["ntripVersion2"].as<int>();
 
                   // Use connection opened times for status
                   status["ntripConnected1"] = NtripPrimaryStatus.connected;
@@ -241,10 +275,7 @@ void initializeWebServer()
     });
 
     server.on("/update", HTTP_GET, handleUpdateRequest);
-    server.on("/update", HTTP_POST, []() {
-        // The first handler responds with "OK" at the completion of the upload
-        server.send(200, "text/plain", "Update complete");
-    }, handleFileUpload);
+    server.on("/update", HTTP_POST, handleUpdateComplete, handleFileUpload);
 
     server.onNotFound(notFound);
 

@@ -71,10 +71,13 @@ constexpr int rtcmCheckInterval_ms   = 1000;    // Check for RTCM data every sec
 constexpr int connectionStabilityTimeout_ms = 5000;  // Time to wait before considering connection stable
 
 // Status tracking
-NTRIPStatus NtripPrimaryStatus   = {false, 0,  "", 0, 0};
-NTRIPStatus NtripSecondaryStatus = {false, 0,  "", 0, 0};
+NTRIPStatus NtripPrimaryStatus   = {false, 0,  "", 0, 0, 1};  // Default to NTRIP 1.0
+NTRIPStatus NtripSecondaryStatus = {false, 0,  "", 0, 0, 1};  // Default to NTRIP 1.0
 unsigned long lastReport_ms      = 0;
 unsigned long lastRtcmData_ms    = 0;  // Track when we last received RTCM data
+
+// Mutex for thread-safe status access
+SemaphoreHandle_t statusMutex = NULL;
 
 bool ntrip_inited = false;
 
@@ -259,9 +262,11 @@ NTRIPError RTCMCheck() {
     auto last_rtcm_data_ms = lastRtcmData_ms;
     auto time_now_ms = millis();
 
+    // Fixed: Handle millis() overflow properly with unsigned arithmetic
     // If we haven't received RTCM data in the timeout period, don't allow connection
-    if (time_now_ms - last_rtcm_data_ms > maxTimeBeforeHangup_ms) {
-        debugf("NTRIP - RTCM timeout: last data %lu ms ago. Timestamp:%lu Prev RTCM:%lu", time_now_ms - last_rtcm_data_ms,time_now_ms, last_rtcm_data_ms);
+    if ((unsigned long)(time_now_ms - last_rtcm_data_ms) > maxTimeBeforeHangup_ms) {
+        debugf("NTRIP - RTCM timeout: last data %lu ms ago. Timestamp:%lu Prev RTCM:%lu",
+               (unsigned long)(time_now_ms - last_rtcm_data_ms), time_now_ms, last_rtcm_data_ms);
         return NTRIPError::RTCM_TIMEOUT;
     }
 
@@ -364,8 +369,27 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
         return false;
     }
 
+    // Validate connection state consistency
+    bool clientConnected = client.connected();
+    bool statusConnected = status.connected;
+
+    // If there's a mismatch, trust the actual client state
+    if (clientConnected != statusConnected) {
+        warning(isPrimary ? "Primary connection state mismatch - synchronizing" :
+                           "Secondary connection state mismatch - synchronizing");
+        if (!clientConnected && statusConnected) {
+            // Client disconnected but status thinks it's connected - update status
+            status.connected = false;
+            status.connectionOpenedAt = 0;
+        } else if (clientConnected && !statusConnected) {
+            // Client connected but status thinks it's not - shouldn't happen, but sync
+            status.connected = true;
+            status.connectionOpenedAt = millis();
+        }
+    }
+
     // If already connected, nothing to do
-    if (client.connected() || status.connected) {
+    if (clientConnected) {
         return true;
     }
 
@@ -382,7 +406,23 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     const char* pw = isPrimary ? settings["rtk_mntpnt_pw1"] : settings["rtk_mntpnt_pw2"];
     const char* user = isPrimary ? settings["rtk_mntpnt_user1"] : settings["rtk_mntpnt_user2"];
     const char* mnt = isPrimary ? settings["rtk_mntpnt1"] : settings["rtk_mntpnt2"];
-    int ntripVersion = settings["ntripVersion"].as<int>();
+    
+    // Get the appropriate version setting for this mount point
+    int ntripVersion;
+    
+    if (isPrimary) {
+        if (settings.containsKey("ntripVersion1")) {
+            ntripVersion = settings["ntripVersion1"].as<int>();
+        } else {
+            ntripVersion = 1; // Default to 1.0
+        }
+    } else {
+        if (settings.containsKey("ntripVersion2")) {
+            ntripVersion = settings["ntripVersion2"].as<int>();
+        } else {
+            ntripVersion = 1; // Default to 1.0
+        }
+    }
 
     debugf("NTRIP %s - Attempting connection to %s:%d (Version %d)", isPrimary ? "Primary" : "Secondary", host, port, ntripVersion);
 
@@ -428,6 +468,7 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             status.reconnectAttempts = 0; // Reset attempts on successful connection
             status.lastError = "";
             status.connectionOpenedAt = millis();
+            status.protocolVersion = ntripVersion;  // Store the protocol version
             infof("NTRIP %s - Connected to %s", isPrimary ? "Primary" : "Secondary", host);
             return true;
         } else {
@@ -443,33 +484,58 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
 }
 
 void send_rtcm(const uint8_t *data, const int len) {
-    int ntripVersion = settings["ntripVersion"].as<int>();
-    if (ntripVersion == 2) {
-        // Format as HTTP chunked transfer
-        char chunkHeader[10];
-        snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", len);  // hex length + CRLF
+    // Reduced verbosity - only log once per message, not every byte
+    if (len > 0) {
+        debugf("RTCM data received: %d bytes", len);
+    }
 
-        if (NtripPrimaryStatus.connected) {
-            client.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
-            client.write(data, len);
-            client.write("\r\n", 2);
-            NtripPrimaryStatus.bytesSent += len;
+    // Thread-safe access to status
+    if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        bool primaryConnected = NtripPrimaryStatus.connected;
+        int primaryVersion = NtripPrimaryStatus.protocolVersion;
+        bool secondaryConnected = NtripSecondaryStatus.connected;
+        int secondaryVersion = NtripSecondaryStatus.protocolVersion;
+
+        xSemaphoreGive(statusMutex);
+
+        if (primaryConnected) {
+            if (primaryVersion == 2) {
+                // Format as HTTP chunked transfer
+                char chunkHeader[10];
+                snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", len);
+                client.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
+                client.write(data, len);
+                client.write("\r\n", 2);
+            } else {
+                // NTRIP 1.0: send raw RTCM data
+                client.write(data, len);
+            }
+
+            // Update bytes sent with mutex protection
+            if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                NtripPrimaryStatus.bytesSent += len;
+                xSemaphoreGive(statusMutex);
+            }
         }
-        if (NtripSecondaryStatus.connected) {
-            client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
-            client2.write(data, len);
-            client2.write("\r\n", 2);
-            NtripSecondaryStatus.bytesSent += len;
-        }
-    } else {
-        // NTRIP 1.0: send raw RTCM data
-        if (NtripPrimaryStatus.connected) {
-            client.write(data, len);
-            NtripPrimaryStatus.bytesSent += len;
-        }
-        if (NtripSecondaryStatus.connected) {
-            client2.write(data, len);
-            NtripSecondaryStatus.bytesSent += len;
+
+        if (secondaryConnected) {
+            if (secondaryVersion == 2) {
+                // Format as HTTP chunked transfer
+                char chunkHeader[10];
+                snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", len);
+                client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
+                client2.write(data, len);
+                client2.write("\r\n", 2);
+            } else {
+                // NTRIP 1.0: send raw RTCM data
+                client2.write(data, len);
+            }
+
+            // Update bytes sent with mutex protection
+            if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                NtripSecondaryStatus.bytesSent += len;
+                xSemaphoreGive(statusMutex);
+            }
         }
     }
 }
@@ -478,11 +544,19 @@ void SFE_UBLOX_GNSS::processRTCM(uint8_t incoming) {
     if (!ntrip_inited) {
         return;
     }
+    // Removed per-byte debug logging to reduce verbosity
     rtcmbuffer::process_byte(incoming,&send_rtcm);
     lastRtcmData_ms = millis();
 }
 
 void ntrip_handle_init() {
+    // Create mutex for thread-safe status access
+    statusMutex = xSemaphoreCreateMutex();
+    if (statusMutex == NULL) {
+        error("Failed to create NTRIP status mutex");
+        return;
+    }
+
     rtcmbuffer::init();
     xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
                 nullptr, // Task parameters
