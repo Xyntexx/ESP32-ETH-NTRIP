@@ -10,6 +10,7 @@
 #include "network/ntrip.h"
 #include "utils/system_status.h"
 #include "WebServer_ESP32_SC_W6100.h"
+#include "esp_task_wdt.h"
 
 constexpr unsigned long UPTIME_PRINT_INTERVAL = 300000; // 5 minutes
 unsigned long lastUptimePrint = 0;
@@ -54,6 +55,11 @@ void setup()
     // Log system startup
     info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
 
+    // Initialize watchdog timer (30 second timeout)
+    esp_task_wdt_init(30, true); // 30 seconds, panic on timeout
+    esp_task_wdt_add(NULL); // Add current task (loop task) to WDT
+    debug("Watchdog timer initialized (30s timeout)");
+
     if (!initialize_systems())
     {
         error("System initialization failed");
@@ -66,6 +72,9 @@ void setup()
 
 void loop()
 {
+    // Reset watchdog timer to prevent timeout
+    esp_task_wdt_reset();
+
     // Current time for intervals
     unsigned long currentMillis = millis();
 
