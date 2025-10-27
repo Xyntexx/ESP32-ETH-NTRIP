@@ -395,17 +395,40 @@ function initCasterToggles() {
 function initVersionToggles() {
     const version1Toggle = document.getElementById('ntripVersion1');
     const version2Toggle = document.getElementById('ntripVersion2');
-    
+    const user1Input = document.getElementById('rtk_mntpnt_user1');
+    const user2Input = document.getElementById('rtk_mntpnt_user2');
+
+    function updateUsernameField(toggle, userInput) {
+        if (!toggle || !userInput) return;
+
+        const isVersion2 = toggle.checked;
+        userInput.disabled = !isVersion2;
+
+        // Clear value and remove required when disabled (NTRIP 1.0 doesn't use username)
+        if (!isVersion2) {
+            userInput.value = '';
+            userInput.removeAttribute('required');
+        } else {
+            userInput.setAttribute('required', 'required');
+        }
+    }
+
     if (version1Toggle) {
         version1Toggle.addEventListener('change', function() {
             console.log('Primary NTRIP version changed:', this.checked ? '2.0' : '1.0');
+            updateUsernameField(this, user1Input);
         });
+        // Initialize on page load
+        updateUsernameField(version1Toggle, user1Input);
     }
-    
+
     if (version2Toggle) {
         version2Toggle.addEventListener('change', function() {
             console.log('Secondary NTRIP version changed:', this.checked ? '2.0' : '1.0');
+            updateUsernameField(this, user2Input);
         });
+        // Initialize on page load
+        updateUsernameField(version2Toggle, user2Input);
     }
 }
 
@@ -466,7 +489,14 @@ function updateFormValues(data) {
         // Update field states based on enable settings
         updateCasterFields(true, !!data.enableCaster1);
         updateCasterFields(false, !!data.enableCaster2);
-        
+
+        // Trigger username field updates based on loaded NTRIP versions
+        // This ensures username fields are properly disabled for NTRIP 1.0
+        const version1Toggle = document.getElementById('ntripVersion1');
+        const version2Toggle = document.getElementById('ntripVersion2');
+        if (version1Toggle) version1Toggle.dispatchEvent(new Event('change'));
+        if (version2Toggle) version2Toggle.dispatchEvent(new Event('change'));
+
         // Enable the form after data is loaded
         enableForm();
     } catch (error) {
