@@ -9,9 +9,9 @@ SFE_UBLOX_GNSS myGNSS;
 
 constexpr int GPS_RX_PIN = 0;
 constexpr int GPS_TX_PIN = 1;
-constexpr size_t test_bauds_len = 4;
+constexpr size_t test_bauds_len = GPS_BAUD_TEST_COUNT;
 constexpr int test_bauds[test_bauds_len] = {460800, 38400, 115200, 230400};
-constexpr int selected_baud = 460800;
+constexpr int selected_baud = GPS_SELECTED_BAUD;
 
 bool gpsConnected = false;
 unsigned long gpsInitTime;

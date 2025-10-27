@@ -37,11 +37,10 @@ bool initializeEthernet() {
         ETH.config(staticIP, gateway, subnet, dns);
     } else {
         debug("Waiting for DHCP connection...");
-        constexpr unsigned long DHCP_TIMEOUT_MS = 30000; // 30 second timeout
         unsigned long startTime = millis();
         while (ETH.localIP() == INADDR_NONE) {
             if ((unsigned long)(millis() - startTime) > DHCP_TIMEOUT_MS) {
-                error("DHCP timeout after 30 seconds");
+                errorf("DHCP timeout after %d seconds", DHCP_TIMEOUT_MS / 1000);
                 break;
             }
             delay(500);

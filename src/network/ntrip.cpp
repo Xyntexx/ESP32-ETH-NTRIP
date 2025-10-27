@@ -62,13 +62,13 @@ WiFiClient client;
 WiFiClient client2;
 
 // Configuration
-constexpr int connectionTimeout      = 2000;        // MS threshold for timeout when connecting
-constexpr int maxTimeBeforeHangup_ms = 10000; // Disconnect after 10s without data
-constexpr int reconnectDelay         = 5000;          // Delay between reconnection attempts
-constexpr int slowReconnectDelay     = 30000;        // Slower delay after 5 failed attempts
-constexpr int maxReconnectAttempts   = 5;            // Maximum number of attempts before using slow delay
-constexpr int rtcmCheckInterval_ms   = 1000;    // Check for RTCM data every second
-constexpr int connectionStabilityTimeout_ms = 5000;  // Time to wait before considering connection stable
+constexpr int connectionTimeout      = NTRIP_CONNECTION_TIMEOUT_MS;  // MS threshold for timeout when connecting
+constexpr int maxTimeBeforeHangup_ms = NTRIP_RTCM_TIMEOUT_MS;        // Disconnect after timeout without data
+constexpr int reconnectDelay         = NTRIP_RECONNECT_DELAY_MS;     // Delay between reconnection attempts
+constexpr int slowReconnectDelay     = 30000;                        // Slower delay after 5 failed attempts
+constexpr int maxReconnectAttempts   = 5;                            // Maximum number of attempts before using slow delay
+constexpr int rtcmCheckInterval_ms   = 1000;                         // Check for RTCM data every second
+constexpr int connectionStabilityTimeout_ms = NTRIP_STABILITY_TIMEOUT_MS;  // Time to wait before considering connection stable
 
 // Status tracking
 NTRIPStatus NtripPrimaryStatus   = {false, 0,  "", 0, 0, 1};  // Default to NTRIP 1.0
@@ -452,8 +452,7 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     debugf("NTRIP %s - Attempting connection to %s:%d (Version %d)", isPrimary ? "Primary" : "Secondary", host, port, ntripVersion);
 
     if (client.connect(host, port, connectionTimeout)) {
-        constexpr int SERVER_BUFFER_SIZE = 1024;
-        char serverBuffer[SERVER_BUFFER_SIZE];
+        char serverBuffer[NTRIP_SERVER_BUFFER_SIZE];
         int bytesWritten = 0;
 
         if (ntripVersion == 2) {
@@ -461,7 +460,7 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             String auth = String(user) + ":" + String(pw);
             String base64Auth = base64_encode(auth);
 
-            bytesWritten = snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            bytesWritten = snprintf(serverBuffer, NTRIP_SERVER_BUFFER_SIZE,
                 "POST /%s HTTP/1.1\r\n"
                 "Host: %s\r\n"
                 "User-Agent: NTRIP %s/App Version %s\r\n"
@@ -475,7 +474,7 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             );
         } else {
             // NTRIP Rev 1.0: Custom 'SOURCE' method
-            bytesWritten = snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            bytesWritten = snprintf(serverBuffer, NTRIP_SERVER_BUFFER_SIZE,
                 "SOURCE %s /%s\r\n"
                 "Source-Agent: NTRIP %s/App Version %s\r\n\r\n",
                 pw, mnt,
@@ -485,8 +484,8 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
         }
 
         // Check if buffer was truncated
-        if (bytesWritten >= SERVER_BUFFER_SIZE) {
-            errorf("NTRIP request buffer overflow: needed %d bytes, have %d", bytesWritten, SERVER_BUFFER_SIZE);
+        if (bytesWritten >= NTRIP_SERVER_BUFFER_SIZE) {
+            errorf("NTRIP request buffer overflow: needed %d bytes, have %d", bytesWritten, NTRIP_SERVER_BUFFER_SIZE);
             client.stop();
             status.connected = false;
             return NTRIPError::BUFFER_OVERFLOW;

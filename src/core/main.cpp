@@ -12,7 +12,6 @@
 #include "WebServer_ESP32_SC_W6100.h"
 #include "esp_task_wdt.h"
 
-constexpr unsigned long UPTIME_PRINT_INTERVAL = 300000; // 5 minutes
 unsigned long lastUptimePrint = 0;
 
 // Create UDP stream instance
@@ -55,10 +54,10 @@ void setup()
     // Log system startup
     info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
 
-    // Initialize watchdog timer (30 second timeout)
-    esp_task_wdt_init(30, true); // 30 seconds, panic on timeout
+    // Initialize watchdog timer
+    esp_task_wdt_init(WATCHDOG_TIMEOUT_MS / 1000, true); // Convert ms to seconds, panic on timeout
     esp_task_wdt_add(NULL); // Add current task (loop task) to WDT
-    debug("Watchdog timer initialized (30s timeout)");
+    debugf("Watchdog timer initialized (%ds timeout)", WATCHDOG_TIMEOUT_MS / 1000);
 
     if (!initialize_systems())
     {
@@ -78,8 +77,8 @@ void loop()
     // Current time for intervals
     unsigned long currentMillis = millis();
 
-    // Print system uptime every 60 seconds
-    if (currentMillis - lastUptimePrint >= UPTIME_PRINT_INTERVAL) {
+    // Print system uptime periodically
+    if (currentMillis - lastUptimePrint >= UPTIME_PRINT_INTERVAL_MS) {
         lastUptimePrint = currentMillis;
         debug("System Uptime: " + getUptimeString());
     }
