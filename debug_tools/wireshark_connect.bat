@@ -1,0 +1,1 @@
+ssh openwrt "tcpdump -U -s0 -w - -i eth0.2 not port 22" | "C:\Program Files\Wireshark\Wireshark.exe" -k -i -

@@ -82,10 +82,12 @@ int get_rtcm_message_type(const uint8_t *payload) {
 void forward_buffer(const uint8_t *data, int len, void (*forward_func)(const uint8_t *, int)) {
     if (len >= 6 && data[0] == 0xD3) {
         msg_type = get_rtcm_message_type(&data[3]);
-        //print_and_update_time_since(msg_type);
+        debugf("Forwarding RTCM message type %d, length %d", msg_type, len);
         if (forward_func) {
             forward_func(data, len);
         }
+    } else {
+        debugf("Invalid RTCM message: first byte 0x%02X, length %d", data[0], len);
     }
 }
 
@@ -100,6 +102,7 @@ void reset_buffer() {
 void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
     if (!in_message) {
         if (byte == 0xD3) {
+            // Reduced verbosity - don't log every message start
             in_message = true;
             rtcm_index = 0;
             running_crc = 0;
@@ -109,7 +112,8 @@ void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
     }
 
     if (rtcm_index >= MAX_BUFFER_LEN) {
-        forward_buffer(rtcm_buffer, rtcm_index, forward_func);
+        // Buffer overflow - discard corrupted data, don't forward
+        error("RTCM buffer overflow - discarding corrupted data");
         reset_buffer();
         return;
     }
@@ -124,8 +128,9 @@ void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
 
     if (rtcm_index == 3) {
         rtcm_length = parse_rtcm_length(rtcm_buffer);
+        // Only log errors, not every message length
         if (rtcm_length > 1023) {
-            printf("RTCM length error");
+            error("RTCM length error - discarding message");
             reset_buffer();
             return;
         }
@@ -141,9 +146,11 @@ void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
                                  rtcm_buffer[rtcm_index - 1];
 
         if (running_crc == expected_crc) {
+            // CRC passed - forward the message (removed verbose logging)
             forward_buffer(rtcm_buffer, rtcm_index, forward_func);
         } else {
-            debugf("RTCM CRC error");
+            // Only log CRC errors
+            errorf("RTCM CRC error: expected 0x%06X, got 0x%06X", expected_crc, running_crc);
         }
         reset_buffer();
     }

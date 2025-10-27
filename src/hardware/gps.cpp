@@ -353,10 +353,11 @@ void disable_fast_uart() {
         if (fast_uart_handle) {
             myGNSS.checkUblox();
             if (!Serial1.available()) {
-                vTaskDelay(1/portTICK_PERIOD_MS);
+                // Fixed: Use proper delay (1ms minimum to avoid tight loop)
+                vTaskDelay(pdMS_TO_TICKS(1));
             }
         } else {
-            vTaskDelay(1);
+            vTaskDelay(pdMS_TO_TICKS(10));  // 10ms delay when not in fast mode
         }
     }
 }
