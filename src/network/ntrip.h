@@ -11,6 +11,7 @@ struct NTRIPStatus {
     String lastError;
     int reconnectAttempts;
     unsigned long connectionOpenedAt;
+    int protocolVersion;  // Added to track protocol version per connection
 };
 
 void ntrip_handle_init();
