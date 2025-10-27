@@ -75,6 +75,7 @@ NTRIPStatus NtripPrimaryStatus   = {false, 0,  "", 0, 0, 1};  // Default to NTRI
 NTRIPStatus NtripSecondaryStatus = {false, 0,  "", 0, 0, 1};  // Default to NTRIP 1.0
 unsigned long lastReport_ms      = 0;
 unsigned long lastRtcmData_ms    = 0;  // Track when we last received RTCM data
+unsigned long lastHealthCheck_ms = 0;  // Rate limit health checks
 
 // Mutex for thread-safe status access
 SemaphoreHandle_t statusMutex = NULL;
@@ -228,21 +229,23 @@ bool stopNTRIP(WiFiClient& client, bool isPrimary)
 // Replace the checkConnectionHealth function with this improved version
 NTRIPError checkConnectionHealth(WiFiClient& client, NTRIPStatus& status, bool isPrimary) {
     const unsigned long currentMillis = millis();
-    
-    // Check if the client is connected at all - always check this regardless of stability period
+
+    // If we're in the stability period, skip health checks entirely
+    // This prevents false disconnects during initial data transfer
+    bool inStabilityPeriod = (unsigned long)(currentMillis - status.connectionOpenedAt) < connectionStabilityTimeout_ms;
+
+    if (inStabilityPeriod) {
+        return NTRIPError::NONE;
+    }
+
+    // After stability period, check if the client is still connected
+    // NOTE: Only check this when NOT actively sending data, as client.connected()
+    // can temporarily return false during write operations
     if (!client.connected()) {
         handleError(isPrimary, NTRIPError::CONNECTION_FAILED);
         return NTRIPError::CONNECTION_FAILED;
     }
-    
-    // If we're in the stability period, only perform basic checks
-    bool inStabilityPeriod = (unsigned long)(currentMillis - status.connectionOpenedAt) < connectionStabilityTimeout_ms;
-    
-    // During stability period, we're more lenient with connection checks
-    if (inStabilityPeriod) {
-        return NTRIPError::NONE;
-    }
-    
+
     return NTRIPError::NONE;
 }
 
@@ -302,20 +305,25 @@ void handleNTRIP()
     }
 
     // Monitor existing connections only if RTCM check passed
-    NTRIPError primaryError = NtripPrimaryStatus.connected ? 
-        checkConnectionHealth(client, NtripPrimaryStatus, true) : NTRIPError::NONE;
-    
-    if (primaryError != NTRIPError::NONE && NtripPrimaryStatus.connected) {
-        handleError(true, primaryError);
-        stopNTRIP(client, true);
-    }
-    
-    NTRIPError secondaryError = NtripSecondaryStatus.connected ? 
-        checkConnectionHealth(client2, NtripSecondaryStatus, false) : NTRIPError::NONE;
-    
-    if (secondaryError != NTRIPError::NONE && NtripSecondaryStatus.connected) {
-        handleError(false, secondaryError);
-        stopNTRIP(client2, false);
+    // Rate limit health checks to every 5 seconds to avoid false positives during data transfer
+    if ((unsigned long)(currentMillis - lastHealthCheck_ms) >= 5000) {
+        lastHealthCheck_ms = currentMillis;
+
+        NTRIPError primaryError = NtripPrimaryStatus.connected ?
+            checkConnectionHealth(client, NtripPrimaryStatus, true) : NTRIPError::NONE;
+
+        if (primaryError != NTRIPError::NONE && NtripPrimaryStatus.connected) {
+            handleError(true, primaryError);
+            stopNTRIP(client, true);
+        }
+
+        NTRIPError secondaryError = NtripSecondaryStatus.connected ?
+            checkConnectionHealth(client2, NtripSecondaryStatus, false) : NTRIPError::NONE;
+
+        if (secondaryError != NTRIPError::NONE && NtripSecondaryStatus.connected) {
+            handleError(false, secondaryError);
+            stopNTRIP(client2, false);
+        }
     }
 
     // Try to connect if not already connected and enough time has passed
