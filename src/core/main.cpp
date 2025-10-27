@@ -90,19 +90,19 @@ void loop()
 
         if (gpsStatusTaskHandle) {
             UBaseType_t watermark = uxTaskGetStackHighWaterMark(gpsStatusTaskHandle);
-            debugf("Stack watermark - gpsStatusTask: %u bytes free (configured: 4096)", watermark);
+            debugf("Stack watermark - gpsStatusTask: %u bytes free (configured: %u)", watermark, GPS_STATUS_TASK_STACK);
         }
         if (gpsUartTaskHandle) {
             UBaseType_t watermark = uxTaskGetStackHighWaterMark(gpsUartTaskHandle);
-            debugf("Stack watermark - gps_uart_check_task: %u bytes free (configured: 10000)", watermark);
+            debugf("Stack watermark - gps_uart_check_task: %u bytes free (configured: %u)", watermark, GPS_UART_CHECK_TASK_STACK);
         }
         if (ntripTaskHandle) {
             UBaseType_t watermark = uxTaskGetStackHighWaterMark(ntripTaskHandle);
-            debugf("Stack watermark - NTRIPTask: %u bytes free (configured: 8192)", watermark);
+            debugf("Stack watermark - NTRIPTask: %u bytes free (configured: %u)", watermark, NTRIP_TASK_STACK);
         }
         if (webServerTaskHandle) {
             UBaseType_t watermark = uxTaskGetStackHighWaterMark(webServerTaskHandle);
-            debugf("Stack watermark - WebServerTask: %u bytes free (configured: 8192)", watermark);
+            debugf("Stack watermark - WebServerTask: %u bytes free (configured: %u)", watermark, WEB_SERVER_TASK_STACK);
         }
     }
 

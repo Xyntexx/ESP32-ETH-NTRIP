@@ -263,5 +263,5 @@ void initializeWebServer()
 
     server.onNotFound(notFound);
 
-    xTaskCreate(WebServerTask, "WebServerTask", 8192, NULL, WEB_SERVER_TASK_PRIORITY, NULL);
+    xTaskCreate(WebServerTask, "WebServerTask", WEB_SERVER_TASK_STACK, NULL, WEB_SERVER_TASK_PRIORITY, NULL);
 }

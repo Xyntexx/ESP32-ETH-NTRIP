@@ -641,7 +641,8 @@ void ntrip_handle_init() {
     lastRtcmData_ms = currentTime - maxTimeBeforeHangup_ms - 1000;
 
     rtcmbuffer::init();
-    xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
+    xTaskCreate(NTRIPTask, "NTRIPTask",
+                NTRIP_TASK_STACK, // Stack size from defines.h
                 nullptr, // Task parameters
                 NTRIP_TASK_PRIORITY, // Task priority
                 nullptr // Task handle

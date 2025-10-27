@@ -46,10 +46,10 @@
 // W6100 task priority (rx)                                      =  1
 
 // Task Stack Sizes (bytes)
-#define GPS_STATUS_TASK_STACK 4096      // Stack for GPS status monitoring task
-#define GPS_UART_CHECK_TASK_STACK 2048  // Stack for GPS UART check task
-#define NTRIP_TASK_STACK 8192           // Stack for NTRIP client task
-#define WEB_SERVER_TASK_STACK 8192      // Stack for web server task
+#define GPS_STATUS_TASK_STACK 4096       // Stack for GPS status monitoring task
+#define GPS_UART_CHECK_TASK_STACK 10000  // Stack for GPS UART check task (high-frequency RTCM processing)
+#define NTRIP_TASK_STACK 8192            // Stack for NTRIP client task
+#define WEB_SERVER_TASK_STACK 8192       // Stack for web server task
 
 // Timeout Constants (milliseconds)
 #define WATCHDOG_TIMEOUT_MS 30000       // Watchdog timer timeout (30 seconds)
