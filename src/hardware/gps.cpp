@@ -26,6 +26,23 @@ GPSMode getGpsMode();
 
 bool prev_survey_in_active = false;
 
+// GPS Task Synchronization: fast_uart_handle controls UART polling frequency
+//
+// The GPS module uses two FreeRTOS tasks that need to coordinate:
+// 1. gpsStatusTask: Updates GPS status every 1 second (slow)
+// 2. gps_uart_check_task: Processes incoming RTCM data from GPS UART (fast)
+//
+// Problem: myGNSS.checkUblox() and other GPS operations (getSurveyMode, etc.)
+// cannot run concurrently - they're not thread-safe and share the same UART.
+//
+// Solution: fast_uart_handle acts as a mutex-like flag:
+// - When TRUE: gps_uart_check_task actively polls UART at high frequency (1ms)
+//              for RTCM data processing. Status updates are blocked.
+// - When FALSE: Status updates can safely query GPS module (getSurveyMode, etc.)
+//               gps_uart_check_task sleeps for 10ms to avoid interference.
+//
+// This prevents race conditions where status queries would corrupt RTCM data
+// stream or vice versa. The flag is toggled around GPS configuration operations.
 bool fast_uart_handle = false;
 
 void disable_fast_uart();
@@ -331,10 +348,14 @@ bool updateGPSStatus() {
     return true;
 }
 
+// Enable fast UART polling for RTCM data processing
+// Call this when GPS is configured and ready to stream RTCM data
 void enable_fast_uart() {
     fast_uart_handle = true;
 }
 
+// Disable fast UART polling to allow safe GPS configuration
+// Call this before any GPS status queries or configuration changes
 void disable_fast_uart() {
     fast_uart_handle = false;
 }

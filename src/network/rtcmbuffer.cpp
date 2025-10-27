@@ -122,10 +122,28 @@ void reset_buffer() {
     memset(rtcm_buffer, 0, sizeof(rtcm_buffer));
 }
 
+// RTCM Buffer State Machine - processes incoming bytes from GPS UART
+//
+// RTCM 3.x Message Format:
+// [0xD3] [Length-H] [Length-L] [Payload 0-1023 bytes] [CRC24-H] [CRC24-M] [CRC24-L]
+//  byte0   byte1      byte2      byte3...byte(N+2)      byte(N+3) byte(N+4) byte(N+5)
+//
+// State Machine Flow:
+// 1. IDLE (in_message=false): Wait for 0xD3 preamble byte
+// 2. HEADER (rtcm_index<3): Collect 3 header bytes to parse length
+// 3. PAYLOAD (rtcm_index>=3): Collect N payload bytes, update CRC24
+// 4. CRC (rtcm_index==length+6): Verify CRC24, forward if valid
+// 5. RESET: Clear buffer and return to IDLE
+//
+// Length Encoding: 10-bit value split across bytes 1-2
+//   byte1: [reserved(2)] [length(8 MSB)]
+//   byte2: [length(2 LSB)] [reserved(6)]
+//
+// CRC24: Computed over header + payload (bytes 0 to N+2), stored in bytes N+3 to N+5
 void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
+    // STATE 1: IDLE - Wait for 0xD3 preamble
     if (!in_message) {
         if (byte == 0xD3) {
-            // Reduced verbosity - don't log every message start
             in_message = true;
             rtcm_index = 0;
             running_crc = 0;
@@ -134,47 +152,56 @@ void process_byte(uint8_t byte, void (*forward_func)(const uint8_t *, int)){
         return;
     }
 
+    // Safety check: prevent buffer overflow
     if (rtcm_index >= MAX_BUFFER_LEN) {
-        // Buffer overflow - discard corrupted data, don't forward
         error("RTCM buffer overflow - discarding corrupted data");
         reset_buffer();
         return;
     }
 
+    // Store current byte
     rtcm_buffer[rtcm_index] = byte;
 
+    // Update CRC for payload bytes only (not the last 3 CRC bytes)
     if (rtcm_index >= 3 && rtcm_index < rtcm_length + 3) {
-        update_crc(byte);  // only update CRC for bytes before last 3
+        update_crc(byte);
     }
 
     rtcm_index++;
 
+    // STATE 2: HEADER COMPLETE (after 3 bytes) - Parse message length
     if (rtcm_index == 3) {
         rtcm_length = parse_rtcm_length(rtcm_buffer);
-        // Only log errors, not every message length
+
+        // Validate length (RTCM 3.x spec: max 1023 bytes payload)
         if (rtcm_length > 1023) {
             error("RTCM length error - discarding message");
             reset_buffer();
             return;
         }
-        // Include first 3 header bytes in CRC
+
+        // Initialize CRC with header bytes
         update_crc(rtcm_buffer[0]);
         update_crc(rtcm_buffer[1]);
         update_crc(rtcm_buffer[2]);
     }
 
-    if (rtcm_index == rtcm_length + 6) { // Complete message
+    // STATE 3: MESSAGE COMPLETE - Verify CRC and forward
+    // Total message size: 3 (header) + N (payload) + 3 (CRC) = N+6 bytes
+    if (rtcm_index == rtcm_length + 6) {
+        // Extract 24-bit CRC from last 3 bytes
         uint32_t expected_crc = (rtcm_buffer[rtcm_index - 3] << 16) |
                                 (rtcm_buffer[rtcm_index - 2] << 8) |
                                  rtcm_buffer[rtcm_index - 1];
 
         if (running_crc == expected_crc) {
-            // CRC passed - forward the message (removed verbose logging)
+            // CRC passed - forward valid message to NTRIP caster
             forward_buffer(rtcm_buffer, rtcm_index, forward_func);
         } else {
-            // Only log CRC errors
             errorf("RTCM CRC error: expected 0x%06X, got 0x%06X", expected_crc, running_crc);
         }
+
+        // STATE 4: RESET - Return to IDLE state
         reset_buffer();
     }
 }
