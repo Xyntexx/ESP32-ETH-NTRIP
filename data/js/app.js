@@ -241,6 +241,8 @@ function indexStart() {
     resetLoading();
     fetchSettings();
     initOtaUpdate();
+    initVersionToggles();
+    initCasterToggles(); // Initialize caster toggle event listeners
     
     // Initial status update
     updateStatus();
@@ -330,9 +332,32 @@ function updateCasterFields(isPrimary, enabled) {
         `casterHost${suffix}`,
         `casterPort${suffix}`,
         `rtk_mntpnt${suffix}`,
+        `rtk_mntpnt_user${suffix}`,
         `rtk_mntpnt_pw${suffix}`
     ];
     
+    // Handle version toggle separately
+    const versionToggle = document.getElementById(`ntripVersion${suffix}`);
+    if (versionToggle) {
+        // Remove disabled attribute if enabled, add it if disabled
+        if (enabled) {
+            versionToggle.removeAttribute('disabled');
+        } else {
+            versionToggle.setAttribute('disabled', '');
+        }
+        
+        // Update the switch container's appearance
+        const switchContainer = versionToggle.closest('.switch-container');
+        if (switchContainer) {
+            if (enabled) {
+                switchContainer.classList.remove('disabled');
+            } else {
+                switchContainer.classList.add('disabled');
+            }
+        }
+    }
+    
+    // Handle other fields
     fields.forEach(id => {
         const element = document.getElementById(id);
         if (element) {
@@ -347,6 +372,64 @@ function updateCasterFields(isPrimary, enabled) {
             }
         }
     });
+}
+
+// Add event listeners for caster enable toggles
+function initCasterToggles() {
+    const enableCaster1 = document.getElementById('enableCaster1');
+    const enableCaster2 = document.getElementById('enableCaster2');
+    
+    if (enableCaster1) {
+        enableCaster1.addEventListener('change', function() {
+            updateCasterFields(true, this.checked);
+        });
+    }
+    
+    if (enableCaster2) {
+        enableCaster2.addEventListener('change', function() {
+            updateCasterFields(false, this.checked);
+        });
+    }
+}
+
+function initVersionToggles() {
+    const version1Toggle = document.getElementById('ntripVersion1');
+    const version2Toggle = document.getElementById('ntripVersion2');
+    const user1Input = document.getElementById('rtk_mntpnt_user1');
+    const user2Input = document.getElementById('rtk_mntpnt_user2');
+
+    function updateUsernameField(toggle, userInput) {
+        if (!toggle || !userInput) return;
+
+        const isVersion2 = toggle.checked;
+        userInput.disabled = !isVersion2;
+
+        // Clear value and remove required when disabled (NTRIP 1.0 doesn't use username)
+        if (!isVersion2) {
+            userInput.value = '';
+            userInput.removeAttribute('required');
+        } else {
+            userInput.setAttribute('required', 'required');
+        }
+    }
+
+    if (version1Toggle) {
+        version1Toggle.addEventListener('change', function() {
+            console.log('Primary NTRIP version changed:', this.checked ? '2.0' : '1.0');
+            updateUsernameField(this, user1Input);
+        });
+        // Initialize on page load
+        updateUsernameField(version1Toggle, user1Input);
+    }
+
+    if (version2Toggle) {
+        version2Toggle.addEventListener('change', function() {
+            console.log('Secondary NTRIP version changed:', this.checked ? '2.0' : '1.0');
+            updateUsernameField(this, user2Input);
+        });
+        // Initialize on page load
+        updateUsernameField(version2Toggle, user2Input);
+    }
 }
 
 function updateFormValues(data) {
@@ -367,9 +450,15 @@ function updateFormValues(data) {
         // Update primary caster settings
         safeSetValue('enableCaster1', data.enableCaster1);
         safeSetValue('ntrip_sName', data.ntrip_sName);
+        
+        // Handle version settings
+        safeSetValue('ntripVersion1', data.ntripVersion1 === 2 || data.ntripVersion1 === '2' || data.ntripVersion1 === true);
+        safeSetValue('ntripVersion2', data.ntripVersion2 === 2 || data.ntripVersion2 === '2' || data.ntripVersion2 === true);
+        
         safeSetValue('casterHost1', data.casterHost1);
         safeSetValue('casterPort1', data.casterPort1);
         safeSetValue('rtk_mntpnt1', data.rtk_mntpnt1);
+        safeSetValue('rtk_mntpnt_user1', data.rtk_mntpnt_user1);
         safeSetValue('rtk_mntpnt_pw1', data.rtk_mntpnt_pw1);
         
         // Update secondary caster settings
@@ -377,13 +466,13 @@ function updateFormValues(data) {
         safeSetValue('casterHost2', data.casterHost2);
         safeSetValue('casterPort2', data.casterPort2);
         safeSetValue('rtk_mntpnt2', data.rtk_mntpnt2);
+        safeSetValue('rtk_mntpnt_user2', data.rtk_mntpnt_user2);
         safeSetValue('rtk_mntpnt_pw2', data.rtk_mntpnt_pw2);
         
-        // Update RTCM checks setting - handle both string 'on' and boolean true
+        // Update RTCM checks setting
         safeSetValue('enableRtcmChecks', data.rtcmChk);
         
-        // Update ECEF coordinates - convert from 0.1mm precision integers to centimeters with 0.1mm precision
-        // Format: -12345678 (0.1mm units) represents -1234.5678 cm
+        // Update ECEF coordinates
         if (data.ecefX !== undefined) {
             const ecefX = parseFloat(data.ecefX) / 100;
             safeSetValue('ecefX', ecefX);
@@ -400,7 +489,14 @@ function updateFormValues(data) {
         // Update field states based on enable settings
         updateCasterFields(true, !!data.enableCaster1);
         updateCasterFields(false, !!data.enableCaster2);
-        
+
+        // Trigger username field updates based on loaded NTRIP versions
+        // This ensures username fields are properly disabled for NTRIP 1.0
+        const version1Toggle = document.getElementById('ntripVersion1');
+        const version2Toggle = document.getElementById('ntripVersion2');
+        if (version1Toggle) version1Toggle.dispatchEvent(new Event('change'));
+        if (version2Toggle) version2Toggle.dispatchEvent(new Event('change'));
+
         // Enable the form after data is loaded
         enableForm();
     } catch (error) {
@@ -418,6 +514,8 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
     
     // Add all basic fields
     formData.append('ntrip_sName', document.getElementById('ntrip_sName').value);
+    formData.append('ntripVersion1', document.getElementById('ntripVersion1').checked ? '2' : '1'); // Convert boolean to version number
+    formData.append('ntripVersion2', document.getElementById('ntripVersion2').checked ? '2' : '1'); // Convert boolean to version number
     
     // Add enable flags for both casters and RTCM checks
     formData.append('enableCaster1', document.getElementById('enableCaster1').checked ? 'on' : '');
@@ -439,6 +537,7 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
         formData.append('casterHost1', document.getElementById('casterHost1').value);
         formData.append('casterPort1', document.getElementById('casterPort1').value);
         formData.append('rtk_mntpnt1', document.getElementById('rtk_mntpnt1').value);
+        formData.append('rtk_mntpnt_user1', document.getElementById('rtk_mntpnt_user1').value);
         formData.append('rtk_mntpnt_pw1', document.getElementById('rtk_mntpnt_pw1').value);
     }
     
@@ -447,6 +546,7 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
         formData.append('casterHost2', document.getElementById('casterHost2').value);
         formData.append('casterPort2', document.getElementById('casterPort2').value);
         formData.append('rtk_mntpnt2', document.getElementById('rtk_mntpnt2').value);
+        formData.append('rtk_mntpnt_user2', document.getElementById('rtk_mntpnt_user2').value);
         formData.append('rtk_mntpnt_pw2', document.getElementById('rtk_mntpnt_pw2').value);
     }
     
@@ -457,7 +557,10 @@ document.querySelector('.settings-form').addEventListener('submit', function(e) 
     // Send the form data
     fetch('/applySettings', {
         method: 'POST',
-        body: formData
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(formData)
     })
     .then(response => {
         if (!response.ok) {

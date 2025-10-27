@@ -40,7 +40,7 @@ extern SFE_UBLOX_GNSS myGNSS;
 
 extern GPSStatusStruct currentGPSStatus; // Declare currentGPSStatus as an external variable
 
-void initializeGPS();
+bool initializeGPS();
 void stopSurveyMode();
 String getSurveyStatus();
 bool saveSurveyPosition();

@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 #include "hardware/gps.h"
-#include "AsyncWebServer_ESP32_SC_W6100.h"
+#include "WebServer_ESP32_SC_W6100.hpp"
 
 // Structure to track NTRIP connection status
 struct NTRIPStatus {
@@ -11,6 +11,7 @@ struct NTRIPStatus {
     String lastError;
     int reconnectAttempts;
     unsigned long connectionOpenedAt;
+    int protocolVersion;  // Added to track protocol version per connection
 };
 
 void ntrip_handle_init();

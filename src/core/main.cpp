@@ -9,6 +9,7 @@
 #include "utils/settings.h"
 #include "network/ntrip.h"
 #include "utils/system_status.h"
+#include "WebServer_ESP32_SC_W6100.h"
 
 constexpr unsigned long UPTIME_PRINT_INTERVAL = 300000; // 5 minutes
 unsigned long lastUptimePrint = 0;
@@ -16,16 +17,7 @@ unsigned long lastUptimePrint = 0;
 // Create UDP stream instance
 UDPStream udpStream;
 
-void setup()
-{
-    startupTime = millis();  // Record startup time
-
-    // Initialize basic logging first
-    initLogging();
-
-    // Log system startup
-    info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
-
+bool initialize_systems() {
     // Read settings
     readSettings();
     debug("Settings loaded");
@@ -42,13 +34,34 @@ void setup()
     debug("Web server initialized");
 
     // Initialize GPS
-    initializeGPS();
+    if (!initializeGPS()) {
+        error("Failed to initialize GPS");
+        return false;
+    }
     debug("GPS initialized");
-
     ntrip_handle_init();
     debug("NTRIP initialized");
+    return true;
+}
 
-    info("System ready");
+void setup()
+{
+    startupTime = millis();  // Record startup time
+
+    // Initialize basic logging first
+    initLogging();
+
+    // Log system startup
+    info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
+
+    if (!initialize_systems())
+    {
+        error("System initialization failed");
+    }else
+    {
+        info("System initialization successful");
+    }
+
 }
 
 void loop()
