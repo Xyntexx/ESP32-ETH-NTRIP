@@ -452,6 +452,10 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     debugf("NTRIP %s - Attempting connection to %s:%d (Version %d)", isPrimary ? "Primary" : "Secondary", host, port, ntripVersion);
 
     if (client.connect(host, port, connectionTimeout)) {
+        // Disable Nagle's algorithm for real-time RTCM streaming
+        // This prevents TCP from batching small packets, ensuring immediate delivery
+        client.setNoDelay(true);
+
         char serverBuffer[NTRIP_SERVER_BUFFER_SIZE];
         int bytesWritten = 0;
 
@@ -545,6 +549,10 @@ void send_rtcm(const uint8_t *data, const int len) {
                 size_t dataWritten = client.write(data, len);
                 size_t trailerWritten = client.write("\r\n", 2);
 
+                // Flush immediately to prevent TCP buffering and ensure real-time delivery
+                // This is critical for RTCM corrections which need consistent 1Hz timing
+                client.flush();
+
                 // Check if all writes succeeded
                 if (headerWritten != strlen(chunkHeader) || dataWritten != (size_t)len || trailerWritten != 2) {
                     errorf("NTRIP Primary - Write failed: expected %d bytes, wrote %d",
@@ -576,6 +584,10 @@ void send_rtcm(const uint8_t *data, const int len) {
                 size_t headerWritten = client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
                 size_t dataWritten = client2.write(data, len);
                 size_t trailerWritten = client2.write("\r\n", 2);
+
+                // Flush immediately to prevent TCP buffering and ensure real-time delivery
+                // This is critical for RTCM corrections which need consistent 1Hz timing
+                client2.flush();
 
                 // Check if all writes succeeded
                 if (headerWritten != strlen(chunkHeader) || dataWritten != (size_t)len || trailerWritten != 2) {
