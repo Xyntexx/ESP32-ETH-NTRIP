@@ -10,8 +10,8 @@
 #include "network/ntrip.h"
 #include "utils/system_status.h"
 #include "WebServer_ESP32_SC_W6100.h"
+#include "esp_task_wdt.h"
 
-constexpr unsigned long UPTIME_PRINT_INTERVAL = 300000; // 5 minutes
 unsigned long lastUptimePrint = 0;
 
 // Create UDP stream instance
@@ -54,6 +54,11 @@ void setup()
     // Log system startup
     info("System Startup - Version " + String(FIRMWARE_VERSION) + " (" + String(BUILD_DATE) + ")");
 
+    // Initialize watchdog timer
+    esp_task_wdt_init(WATCHDOG_TIMEOUT_MS / 1000, true); // Convert ms to seconds, panic on timeout
+    esp_task_wdt_add(NULL); // Add current task (loop task) to WDT
+    debugf("Watchdog timer initialized (%ds timeout)", WATCHDOG_TIMEOUT_MS / 1000);
+
     if (!initialize_systems())
     {
         error("System initialization failed");
@@ -66,14 +71,41 @@ void setup()
 
 void loop()
 {
+    // Reset watchdog timer to prevent timeout
+    esp_task_wdt_reset();
+
     // Current time for intervals
     unsigned long currentMillis = millis();
 
-    // Print system uptime every 60 seconds
-    if (currentMillis - lastUptimePrint >= UPTIME_PRINT_INTERVAL) {
+    // Print system uptime and task stack usage periodically
+    if (currentMillis - lastUptimePrint >= UPTIME_PRINT_INTERVAL_MS) {
         lastUptimePrint = currentMillis;
         debug("System Uptime: " + getUptimeString());
+
+        // Monitor stack usage for all tasks (watermark = minimum free stack ever reached)
+        TaskHandle_t gpsStatusTaskHandle = xTaskGetHandle("gpsStatusTask");
+        TaskHandle_t gpsUartTaskHandle = xTaskGetHandle("gps_uart_check_task");
+        TaskHandle_t ntripTaskHandle = xTaskGetHandle("NTRIPTask");
+        TaskHandle_t webServerTaskHandle = xTaskGetHandle("WebServerTask");
+
+        if (gpsStatusTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(gpsStatusTaskHandle);
+            debugf("Stack watermark - gpsStatusTask: %u bytes free (configured: %u)", watermark, GPS_STATUS_TASK_STACK);
+        }
+        if (gpsUartTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(gpsUartTaskHandle);
+            debugf("Stack watermark - gps_uart_check_task: %u bytes free (configured: %u)", watermark, GPS_UART_CHECK_TASK_STACK);
+        }
+        if (ntripTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(ntripTaskHandle);
+            debugf("Stack watermark - NTRIPTask: %u bytes free (configured: %u)", watermark, NTRIP_TASK_STACK);
+        }
+        if (webServerTaskHandle) {
+            UBaseType_t watermark = uxTaskGetStackHighWaterMark(webServerTaskHandle);
+            debugf("Stack watermark - WebServerTask: %u bytes free (configured: %u)", watermark, WEB_SERVER_TASK_STACK);
+        }
     }
 
-    delay(1000);
+    // Use shorter delay for more responsive shutdown
+    delay(100);
 }

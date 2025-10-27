@@ -62,13 +62,13 @@ WiFiClient client;
 WiFiClient client2;
 
 // Configuration
-constexpr int connectionTimeout      = 2000;        // MS threshold for timeout when connecting
-constexpr int maxTimeBeforeHangup_ms = 10000; // Disconnect after 10s without data
-constexpr int reconnectDelay         = 5000;          // Delay between reconnection attempts
-constexpr int slowReconnectDelay     = 30000;        // Slower delay after 5 failed attempts
-constexpr int maxReconnectAttempts   = 5;            // Maximum number of attempts before using slow delay
-constexpr int rtcmCheckInterval_ms   = 1000;    // Check for RTCM data every second
-constexpr int connectionStabilityTimeout_ms = 5000;  // Time to wait before considering connection stable
+constexpr int connectionTimeout      = NTRIP_CONNECTION_TIMEOUT_MS;  // MS threshold for timeout when connecting
+constexpr int maxTimeBeforeHangup_ms = NTRIP_RTCM_TIMEOUT_MS;        // Disconnect after timeout without data
+constexpr int reconnectDelay         = NTRIP_RECONNECT_DELAY_MS;     // Delay between reconnection attempts
+constexpr int slowReconnectDelay     = 30000;                        // Slower delay after 5 failed attempts
+constexpr int maxReconnectAttempts   = 5;                            // Maximum number of attempts before using slow delay
+constexpr int rtcmCheckInterval_ms   = 1000;                         // Check for RTCM data every second
+constexpr int connectionStabilityTimeout_ms = NTRIP_STABILITY_TIMEOUT_MS;  // Time to wait before considering connection stable
 
 // Status tracking
 NTRIPStatus NtripPrimaryStatus   = {false, 0,  "", 0, 0, 1};  // Default to NTRIP 1.0
@@ -94,7 +94,8 @@ enum class NTRIPError {
     INVALID_CONFIG,
     AUTH_FAILED,
     RTCM_TIMEOUT,
-    SURVEY_IN_ACTIVE
+    SURVEY_IN_ACTIVE,
+    BUFFER_OVERFLOW
 };
 
 String getErrorMessage(NTRIPError error) {
@@ -111,6 +112,8 @@ String getErrorMessage(NTRIPError error) {
             return "Authentication failed";
         case NTRIPError::RTCM_TIMEOUT:
             return "RTCM data timeout";
+        case NTRIPError::BUFFER_OVERFLOW:
+            return "Request buffer overflow";
         default:
             return "Unknown error";
     }
@@ -449,15 +452,19 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     debugf("NTRIP %s - Attempting connection to %s:%d (Version %d)", isPrimary ? "Primary" : "Secondary", host, port, ntripVersion);
 
     if (client.connect(host, port, connectionTimeout)) {
-        constexpr int SERVER_BUFFER_SIZE = 1024;
-        char serverBuffer[SERVER_BUFFER_SIZE];
-        
+        // Disable Nagle's algorithm for real-time RTCM streaming
+        // This prevents TCP from batching small packets, ensuring immediate delivery
+        client.setNoDelay(true);
+
+        char serverBuffer[NTRIP_SERVER_BUFFER_SIZE];
+        int bytesWritten = 0;
+
         if (ntripVersion == 2) {
             // NTRIP Rev 2.0: Use HTTP/1.1 POST with Basic Auth
             String auth = String(user) + ":" + String(pw);
             String base64Auth = base64_encode(auth);
 
-            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            bytesWritten = snprintf(serverBuffer, NTRIP_SERVER_BUFFER_SIZE,
                 "POST /%s HTTP/1.1\r\n"
                 "Host: %s\r\n"
                 "User-Agent: NTRIP %s/App Version %s\r\n"
@@ -471,13 +478,22 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             );
         } else {
             // NTRIP Rev 1.0: Custom 'SOURCE' method
-            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            bytesWritten = snprintf(serverBuffer, NTRIP_SERVER_BUFFER_SIZE,
                 "SOURCE %s /%s\r\n"
                 "Source-Agent: NTRIP %s/App Version %s\r\n\r\n",
                 pw, mnt,
                 settings["ntrip_sName"].as<const char*>(),
                 FIRMWARE_VERSION
             );
+        }
+
+        // Check if buffer was truncated
+        if (bytesWritten >= NTRIP_SERVER_BUFFER_SIZE) {
+            errorf("NTRIP request buffer overflow: needed %d bytes, have %d", bytesWritten, NTRIP_SERVER_BUFFER_SIZE);
+            client.stop();
+            status.connected = false;
+            handleError(isPrimary, NTRIPError::BUFFER_OVERFLOW);
+            return false;
         }
 
         client.write(serverBuffer, strlen(serverBuffer));
@@ -533,6 +549,10 @@ void send_rtcm(const uint8_t *data, const int len) {
                 size_t dataWritten = client.write(data, len);
                 size_t trailerWritten = client.write("\r\n", 2);
 
+                // Flush immediately to prevent TCP buffering and ensure real-time delivery
+                // This is critical for RTCM corrections which need consistent 1Hz timing
+                client.flush();
+
                 // Check if all writes succeeded
                 if (headerWritten != strlen(chunkHeader) || dataWritten != (size_t)len || trailerWritten != 2) {
                     errorf("NTRIP Primary - Write failed: expected %d bytes, wrote %d",
@@ -564,6 +584,10 @@ void send_rtcm(const uint8_t *data, const int len) {
                 size_t headerWritten = client2.write((const uint8_t *)chunkHeader, strlen(chunkHeader));
                 size_t dataWritten = client2.write(data, len);
                 size_t trailerWritten = client2.write("\r\n", 2);
+
+                // Flush immediately to prevent TCP buffering and ensure real-time delivery
+                // This is critical for RTCM corrections which need consistent 1Hz timing
+                client2.flush();
 
                 // Check if all writes succeeded
                 if (headerWritten != strlen(chunkHeader) || dataWritten != (size_t)len || trailerWritten != 2) {
@@ -617,7 +641,8 @@ void ntrip_handle_init() {
     lastRtcmData_ms = currentTime - maxTimeBeforeHangup_ms - 1000;
 
     rtcmbuffer::init();
-    xTaskCreate(NTRIPTask, "NTRIPTask", 8192, // Stack size
+    xTaskCreate(NTRIPTask, "NTRIPTask",
+                NTRIP_TASK_STACK, // Stack size from defines.h
                 nullptr, // Task parameters
                 NTRIP_TASK_PRIORITY, // Task priority
                 nullptr // Task handle

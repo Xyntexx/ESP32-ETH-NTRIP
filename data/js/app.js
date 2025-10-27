@@ -505,9 +505,72 @@ function updateFormValues(data) {
     }
 }
 
+// Client-side validation function
+function validateFormInputs() {
+    const errors = [];
+
+    // Validate port numbers (1-65535)
+    const port1 = document.getElementById('casterPort1').value;
+    const port2 = document.getElementById('casterPort2').value;
+
+    if (document.getElementById('enableCaster1').checked) {
+        const portNum1 = parseInt(port1);
+        if (isNaN(portNum1) || portNum1 < 1 || portNum1 > 65535) {
+            errors.push('Primary caster port must be between 1 and 65535');
+        }
+    }
+
+    if (document.getElementById('enableCaster2').checked) {
+        const portNum2 = parseInt(port2);
+        if (isNaN(portNum2) || portNum2 < 1 || portNum2 > 65535) {
+            errors.push('Secondary caster port must be between 1 and 65535');
+        }
+    }
+
+    // Validate username length (max 15 characters)
+    const user1 = document.getElementById('rtk_mntpnt_user1').value;
+    const user2 = document.getElementById('rtk_mntpnt_user2').value;
+
+    if (user1 && user1.length > 15) {
+        errors.push('Primary username must be 15 characters or less');
+    }
+    if (user2 && user2.length > 15) {
+        errors.push('Secondary username must be 15 characters or less');
+    }
+
+    // Validate ECEF coordinates (±7000 km = ±700000 cm)
+    const ecefX = parseFloat(document.getElementById('ecefX').value);
+    const ecefY = parseFloat(document.getElementById('ecefY').value);
+    const ecefZ = parseFloat(document.getElementById('ecefZ').value);
+
+    if (Math.abs(ecefX) > 700000) {
+        errors.push('ECEF X coordinate must be within ±7000 km (±700000 cm)');
+    }
+    if (Math.abs(ecefY) > 700000) {
+        errors.push('ECEF Y coordinate must be within ±7000 km (±700000 cm)');
+    }
+    if (Math.abs(ecefZ) > 700000) {
+        errors.push('ECEF Z coordinate must be within ±7000 km (±700000 cm)');
+    }
+
+    return errors;
+}
+
 // Add form submission handler
 document.querySelector('.settings-form').addEventListener('submit', function(e) {
     e.preventDefault();
+
+    // Validate inputs before confirmation
+    const validationErrors = validateFormInputs();
+    if (validationErrors.length > 0) {
+        alert('Please fix the following errors:\n\n' + validationErrors.join('\n'));
+        return;
+    }
+
+    // Confirmation dialog to prevent accidental submissions
+    if (!confirm('Are you sure you want to save these settings? The device may restart.')) {
+        return;
+    }
 
     // Create FormData object
     const formData = new FormData();

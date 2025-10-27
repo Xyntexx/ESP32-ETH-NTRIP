@@ -9,13 +9,13 @@ SFE_UBLOX_GNSS myGNSS;
 
 constexpr int GPS_RX_PIN = 0;
 constexpr int GPS_TX_PIN = 1;
-constexpr size_t test_bauds_len = 4;
+constexpr size_t test_bauds_len = GPS_BAUD_TEST_COUNT;
 constexpr int test_bauds[test_bauds_len] = {460800, 38400, 115200, 230400};
-constexpr int selected_baud = 460800;
+constexpr int selected_baud = GPS_SELECTED_BAUD;
 
 bool gpsConnected = false;
 unsigned long gpsInitTime;
-String gpsStatusString;
+String gpsStatusSting;
 
 GPSStatusStruct currentGPSStatus;
 
@@ -26,6 +26,23 @@ GPSMode getGpsMode();
 
 bool prev_survey_in_active = false;
 
+// GPS Task Synchronization: fast_uart_handle controls UART polling frequency
+//
+// The GPS module uses two FreeRTOS tasks that need to coordinate:
+// 1. gpsStatusTask: Updates GPS status every 1 second (slow)
+// 2. gps_uart_check_task: Processes incoming RTCM data from GPS UART (fast)
+//
+// Problem: myGNSS.checkUblox() and other GPS operations (getSurveyMode, etc.)
+// cannot run concurrently - they're not thread-safe and share the same UART.
+//
+// Solution: fast_uart_handle acts as a mutex-like flag:
+// - When TRUE: gps_uart_check_task actively polls UART at high frequency (1ms)
+//              for RTCM data processing. Status updates are blocked.
+// - When FALSE: Status updates can safely query GPS module (getSurveyMode, etc.)
+//               gps_uart_check_task sleeps for 10ms to avoid interference.
+//
+// This prevents race conditions where status queries would corrupt RTCM data
+// stream or vice versa. The flag is toggled around GPS configuration operations.
 bool fast_uart_handle = false;
 
 void disable_fast_uart();
@@ -59,10 +76,10 @@ bool initializeGPS() {
     if (gpsConnected) {
         gpsInitTime = millis();
     }
-    // Start task
-    xTaskCreate(gps_uart_check_task, "gps_uart_check_task", 10000, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
+    // Start GPS tasks with centralized stack sizes
+    xTaskCreate(gps_uart_check_task, "gps_uart_check_task", GPS_UART_CHECK_TASK_STACK, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
     delay(1000);
-    xTaskCreate(gpsStatusTask, "gpsStatusTask", 4096, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
+    xTaskCreate(gpsStatusTask, "gpsStatusTask", GPS_STATUS_TASK_STACK, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
     return true;
 }
 
@@ -319,8 +336,8 @@ bool updateGPSStatus() {
         enable_fast_uart();
     }
 
-    gpsStatusString = gpsStatusString(currentGPSStatus);
-    currentGPSStatus.gpsModeString = gpsStatusString.c_str();
+    gpsStatusSting = gpsStatusString(currentGPSStatus);
+    currentGPSStatus.gpsModeString = gpsStatusSting.c_str();
 
     // If survey-in mode has just completed, save the position
     if (prev_survey_in_active && !currentGPSStatus.surveyInActive) {
@@ -331,10 +348,14 @@ bool updateGPSStatus() {
     return true;
 }
 
+// Enable fast UART polling for RTCM data processing
+// Call this when GPS is configured and ready to stream RTCM data
 void enable_fast_uart() {
     fast_uart_handle = true;
 }
 
+// Disable fast UART polling to allow safe GPS configuration
+// Call this before any GPS status queries or configuration changes
 void disable_fast_uart() {
     fast_uart_handle = false;
 }
