@@ -511,6 +511,9 @@ void send_rtcm(const uint8_t *data, const int len) {
         debugf("RTCM data received: %d bytes", len);
     }
 
+    // Update timestamp - we received valid RTCM data that passed filtering
+    lastRtcmData_ms = millis();
+
     // Thread-safe access to status
     if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         bool primaryConnected = NtripPrimaryStatus.connected;
@@ -593,8 +596,8 @@ void SFE_UBLOX_GNSS::processRTCM(uint8_t incoming) {
         return;
     }
     // Removed per-byte debug logging to reduce verbosity
+    // Note: lastRtcmData_ms is now updated in send_rtcm() only for forwarded messages
     rtcmbuffer::process_byte(incoming,&send_rtcm);
-    lastRtcmData_ms = millis();
 }
 
 void ntrip_handle_init() {
