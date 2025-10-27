@@ -96,6 +96,14 @@ int get_rtcm_message_type(const uint8_t *payload) {
 void forward_buffer(const uint8_t *data, int len, void (*forward_func)(const uint8_t *, int)) {
     if (len >= 6 && data[0] == 0xD3) {
         msg_type = get_rtcm_message_type(&data[3]);
+
+        // Filter out RTCM 1230 (GLONASS biases) when it contains no useful data
+        // Message type 1230 with length <= 10 bytes is just header/placeholder without antenna
+        if (msg_type == 1230 && len <= 10) {
+            debugf("Filtering empty RTCM 1230 (no antenna data), length %d", len);
+            return;  // Don't forward this message
+        }
+
         debugf("Forwarding RTCM message type %d, length %d", msg_type, len);
         if (forward_func) {
             forward_func(data, len);
