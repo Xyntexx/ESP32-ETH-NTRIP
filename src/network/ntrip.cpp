@@ -94,7 +94,8 @@ enum class NTRIPError {
     INVALID_CONFIG,
     AUTH_FAILED,
     RTCM_TIMEOUT,
-    SURVEY_IN_ACTIVE
+    SURVEY_IN_ACTIVE,
+    BUFFER_OVERFLOW
 };
 
 String getErrorMessage(NTRIPError error) {
@@ -111,6 +112,8 @@ String getErrorMessage(NTRIPError error) {
             return "Authentication failed";
         case NTRIPError::RTCM_TIMEOUT:
             return "RTCM data timeout";
+        case NTRIPError::BUFFER_OVERFLOW:
+            return "Request buffer overflow";
         default:
             return "Unknown error";
     }
@@ -451,13 +454,14 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
     if (client.connect(host, port, connectionTimeout)) {
         constexpr int SERVER_BUFFER_SIZE = 1024;
         char serverBuffer[SERVER_BUFFER_SIZE];
-        
+        int bytesWritten = 0;
+
         if (ntripVersion == 2) {
             // NTRIP Rev 2.0: Use HTTP/1.1 POST with Basic Auth
             String auth = String(user) + ":" + String(pw);
             String base64Auth = base64_encode(auth);
 
-            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            bytesWritten = snprintf(serverBuffer, SERVER_BUFFER_SIZE,
                 "POST /%s HTTP/1.1\r\n"
                 "Host: %s\r\n"
                 "User-Agent: NTRIP %s/App Version %s\r\n"
@@ -471,13 +475,21 @@ bool checkAndConnect(WiFiClient& client, NTRIPStatus& status, const bool isPrima
             );
         } else {
             // NTRIP Rev 1.0: Custom 'SOURCE' method
-            snprintf(serverBuffer, SERVER_BUFFER_SIZE,
+            bytesWritten = snprintf(serverBuffer, SERVER_BUFFER_SIZE,
                 "SOURCE %s /%s\r\n"
                 "Source-Agent: NTRIP %s/App Version %s\r\n\r\n",
                 pw, mnt,
                 settings["ntrip_sName"].as<const char*>(),
                 FIRMWARE_VERSION
             );
+        }
+
+        // Check if buffer was truncated
+        if (bytesWritten >= SERVER_BUFFER_SIZE) {
+            errorf("NTRIP request buffer overflow: needed %d bytes, have %d", bytesWritten, SERVER_BUFFER_SIZE);
+            client.stop();
+            status.connected = false;
+            return NTRIPError::BUFFER_OVERFLOW;
         }
 
         client.write(serverBuffer, strlen(serverBuffer));
