@@ -268,8 +268,13 @@ NTRIPError RTCMCheck() {
     // Fixed: Handle millis() overflow properly with unsigned arithmetic
     // If we haven't received RTCM data in the timeout period, don't allow connection
     if ((unsigned long)(time_now_ms - last_rtcm_data_ms) > maxTimeBeforeHangup_ms) {
-        debugf("NTRIP - RTCM timeout: last data %lu ms ago. Timestamp:%lu Prev RTCM:%lu",
-               (unsigned long)(time_now_ms - last_rtcm_data_ms), time_now_ms, last_rtcm_data_ms);
+        // Rate limit this debug message to once per 5 seconds to avoid log spam
+        static unsigned long lastRtcmTimeoutLog = 0;
+        if ((unsigned long)(time_now_ms - lastRtcmTimeoutLog) >= 5000) {
+            lastRtcmTimeoutLog = time_now_ms;
+            debugf("NTRIP - RTCM timeout: last data %lu ms ago. Timestamp:%lu Prev RTCM:%lu",
+                   (unsigned long)(time_now_ms - last_rtcm_data_ms), time_now_ms, last_rtcm_data_ms);
+        }
         return NTRIPError::RTCM_TIMEOUT;
     }
 
