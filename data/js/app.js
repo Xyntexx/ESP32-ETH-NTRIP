@@ -92,17 +92,17 @@
         fetch("/status")
             .then(response => response.json())
             .then(data => {
-                // Update System Info
-                document.getElementById("firmwareVersion").innerHTML = data.firmwareVersion || "--";
-                document.getElementById("buildDate").innerHTML = data.buildDate || "--";
-                document.getElementById("uptime").innerHTML = data.uptime || "--";
+                // Update System Info - use textContent to prevent XSS
+                document.getElementById("firmwareVersion").textContent = data.firmwareVersion || "--";
+                document.getElementById("buildDate").textContent = data.buildDate || "--";
+                document.getElementById("uptime").textContent = data.uptime || "--";
 
-                // Update GPS Status
-                document.getElementById("gpsStatus").innerHTML = data.gpsStatusString || "--";
-                document.getElementById("gpsCoordinates").innerHTML = 
+                // Update GPS Status - use textContent to prevent XSS
+                document.getElementById("gpsStatus").textContent = data.gpsStatusString || "--";
+                document.getElementById("gpsCoordinates").textContent =
                     `Lat: ${data.gpsLatitude || "--"}, Lon: ${data.gpsLongitude || "--"}`;
-                document.getElementById("sivCard").innerHTML = data.gpsSiv || "--";
-                document.getElementById("gpsMode").innerHTML = data.gpsMode || "--";
+                document.getElementById("sivCard").textContent = data.gpsSiv || "--";
+                document.getElementById("gpsMode").textContent = data.gpsMode || "--";
 
                 // Update Survey Status
                 const surveyContainer = document.getElementById("surveyStatusContainer");
@@ -111,17 +111,17 @@
                 if (data.surveyInActive) {
                     surveyContainer.style.display = "block";
                     surveyContainer.className = "survey-status in-progress";
-                    document.getElementById("surveyActive").innerHTML = "Active";
+                    document.getElementById("surveyActive").textContent = "Active";
                     surveyDetails.style.display = "block";
-                    document.getElementById("surveyTime").innerHTML = data.surveyInObservationTime || "0";
-                    document.getElementById("surveyAccuracy").innerHTML = data.surveyInMeanAccuracy ? Math.round(data.surveyInMeanAccuracy * 100) / 100 : "-";
+                    document.getElementById("surveyTime").textContent = data.surveyInObservationTime || "0";
+                    document.getElementById("surveyAccuracy").textContent = data.surveyInMeanAccuracy ? Math.round(data.surveyInMeanAccuracy * 100) / 100 : "-";
                 } else if (data.surveyInValid) {
                     surveyContainer.style.display = "block";
                     surveyContainer.className = "survey-status completed";
-                    document.getElementById("surveyActive").innerHTML = "Completed";
+                    document.getElementById("surveyActive").textContent = "Completed";
                     surveyDetails.style.display = "block";
-                    document.getElementById("surveyTime").innerHTML = data.surveyInObservationTime || "0";
-                    document.getElementById("surveyAccuracy").innerHTML = data.surveyInMeanAccuracy ? Math.round(data.surveyInMeanAccuracy * 100) / 100 : "-";
+                    document.getElementById("surveyTime").textContent = data.surveyInObservationTime || "0";
+                    document.getElementById("surveyAccuracy").textContent = data.surveyInMeanAccuracy ? Math.round(data.surveyInMeanAccuracy * 100) / 100 : "-";
                 } else {
                     surveyContainer.style.display = "none";
                     surveyDetails.style.display = "none";
@@ -137,14 +137,14 @@
                 ntripEnabled1.className = data.enableCaster1 ? "status-label status-active" : "status-label status-inactive";
                 
                 if (data.ntripConnected1) {
-                    ntripConn1.innerHTML = "Connected";
+                    ntripConn1.textContent = "Connected";
                     ntripConn1.className = "status-value status-active";
-                    ntripCard1.innerHTML = "Uptime: " + (data.ntripUptime1 || "--");
+                    ntripCard1.textContent = "Uptime: " + (data.ntripUptime1 || "--");
                     ntripCard1.style.display = "block";
                 } else {
-                    ntripConn1.innerHTML = "Disconnected";
+                    ntripConn1.textContent = "Disconnected";
                     ntripConn1.className = "status-value status-inactive";
-                    ntripCard1.innerHTML = "Uptime: --";
+                    ntripCard1.textContent = "Uptime: --";
                     ntripCard1.style.display = "block";
                 }
 
@@ -152,20 +152,20 @@
                 const ntripConn2 = document.getElementById("ntripConnection2");
                 const ntripCard2 = document.getElementById("ntripCard2");
                 const ntripEnabled2 = document.getElementById("ntripEnabled2");
-                
+
                 // Always show NTRIP status regardless of enabled state
                 ntripEnabled2.textContent = data.enableCaster2 ? "Enabled" : "Disabled";
                 ntripEnabled2.className = data.enableCaster2 ? "status-label status-active" : "status-label status-inactive";
-                
+
                 if (data.ntripConnected2) {
-                    ntripConn2.innerHTML = "Connected";
+                    ntripConn2.textContent = "Connected";
                     ntripConn2.className = "status-value status-active";
-                    ntripCard2.innerHTML = "Uptime: " + (data.ntripUptime2 || "--");
+                    ntripCard2.textContent = "Uptime: " + (data.ntripUptime2 || "--");
                     ntripCard2.style.display = "block";
                 } else {
-                    ntripConn2.innerHTML = "Disconnected";
+                    ntripConn2.textContent = "Disconnected";
                     ntripConn2.className = "status-value status-inactive";
-                    ntripCard2.innerHTML = "Uptime: --";
+                    ntripCard2.textContent = "Uptime: --";
                     ntripCard2.style.display = "block";
                 }
             })

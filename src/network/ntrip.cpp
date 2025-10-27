@@ -514,14 +514,14 @@ void send_rtcm(const uint8_t *data, const int len) {
     // Update timestamp - we received valid RTCM data that passed filtering
     lastRtcmData_ms = millis();
 
-    // Thread-safe access to status
+    // Thread-safe access to status - hold mutex for entire critical section
     if (xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         bool primaryConnected = NtripPrimaryStatus.connected;
         int primaryVersion = NtripPrimaryStatus.protocolVersion;
         bool secondaryConnected = NtripSecondaryStatus.connected;
         int secondaryVersion = NtripSecondaryStatus.protocolVersion;
 
-        xSemaphoreGive(statusMutex);
+        // Don't release mutex yet - we need it for updating bytesSent
 
         if (primaryConnected) {
             size_t bytesWritten = 0;
@@ -550,9 +550,8 @@ void send_rtcm(const uint8_t *data, const int len) {
             }
 
             // Update bytes sent only if write succeeded
-            if (bytesWritten > 0 && xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (bytesWritten > 0) {
                 NtripPrimaryStatus.bytesSent += bytesWritten;
-                xSemaphoreGive(statusMutex);
             }
         }
 
@@ -583,11 +582,13 @@ void send_rtcm(const uint8_t *data, const int len) {
             }
 
             // Update bytes sent only if write succeeded
-            if (bytesWritten > 0 && xSemaphoreTake(statusMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (bytesWritten > 0) {
                 NtripSecondaryStatus.bytesSent += bytesWritten;
-                xSemaphoreGive(statusMutex);
             }
         }
+
+        // Release mutex after all updates are done
+        xSemaphoreGive(statusMutex);
     }
 }
 

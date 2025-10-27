@@ -85,7 +85,13 @@ bool writeSettings(String name, String value)
 
   if (name == "casterPort1" || name == "casterPort2")
   {
-    uint16_t portValue = (uint16_t)value.toInt();
+    int portInt = value.toInt();
+    // Validate port range (1-65535)
+    if (portInt < 1 || portInt > 65535) {
+      errorf("Invalid port number %d for %s (must be 1-65535), using default 2101", portInt, name.c_str());
+      portInt = 2101;
+    }
+    uint16_t portValue = (uint16_t)portInt;
     debugf("Converting port value to uint16_t: %d", portValue);
     preferences.putUShort(name.c_str(), portValue);
   }
@@ -99,6 +105,11 @@ bool writeSettings(String name, String value)
   else if (name == "ntripVersion1" || name == "ntripVersion2")
   {
     int version = value.toInt();
+    // Validate NTRIP version (only 1 or 2 are valid)
+    if (version != 1 && version != 2) {
+      errorf("Invalid NTRIP version %d for %s (must be 1 or 2), using default 1", version, name.c_str());
+      version = 1;
+    }
     debugf("Converting to NTRIP version: %d", version);
     preferences.putInt(name.c_str(), version);
   }
@@ -107,11 +118,11 @@ bool writeSettings(String name, String value)
     // Convert string to int64_t for ECEF coordinates (0.1mm precision)
     // For large values, we need to handle them as strings and convert to int64_t
     int64_t ecefValue = 0;
-    
+
     // Check if the value is negative
     bool isNegative = value.startsWith("-");
     String absValue = isNegative ? value.substring(1) : value;
-    
+
     // Convert each character to a digit and build the int64_t value
     for (unsigned int i = 0; i < absValue.length(); i++) {
       char c = absValue.charAt(i);
@@ -119,12 +130,20 @@ bool writeSettings(String name, String value)
         ecefValue = ecefValue * 10 + (c - '0');
       }
     }
-    
+
     // Apply the sign
     if (isNegative) {
       ecefValue = -ecefValue;
     }
-    
+
+    // Validate ECEF coordinates are within Earth bounds (±7,000,000 meters with 0.1mm precision)
+    // Earth's radius is ~6,371km, so ±7,000,000 meters = ±70,000,000,000 in 0.1mm units
+    const int64_t MAX_ECEF = 70000000000LL;  // 7,000 km in 0.1mm units
+    if (ecefValue < -MAX_ECEF || ecefValue > MAX_ECEF) {
+      errorf("ECEF coordinate %lld out of bounds for %s (max ±7,000 km), setting to 0", ecefValue, name.c_str());
+      ecefValue = 0;
+    }
+
     debugf("Converting ECEF value to int64_t: %lld", ecefValue);
     preferences.putLong64(name.c_str(), ecefValue);
   }

@@ -158,6 +158,13 @@ bool initUDPLogging(uint16_t udpPort) {
         return false;
     }
 
+    // Clean up previous UDP stream if it exists
+    if (udpStream != nullptr) {
+        OutputStream::removeStream(udpStream);
+        delete udpStream;
+        udpStream = nullptr;
+    }
+
     // Create and initialize UDP stream
     udpStream = new UDPStream(IPAddress(255, 255, 255, 255), udpPort);
     if (udpStream->begin()) {

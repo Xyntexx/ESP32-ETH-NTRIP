@@ -223,26 +223,10 @@ void initializeWebServer()
                   server.send(200, "application/json", message);
               });
 
-    server.on("/applySettings", HTTP_GET, []() {
-      info("Applying settings");
-      String inputMessage;
-      // Param count
-      size_t param_count = server.args();
-      for (int i = 0; i < param_count; i++) {
-        auto name = server.argName(i);
-          auto value = server.arg(i);
-        debugf("Param %s: %s", name.c_str(), value.c_str());
-        writeSettings(name, value);
-      }
+    // SECURITY: Removed GET handler for applySettings to prevent credentials in query parameters
+    // Only POST is allowed to protect sensitive data (passwords) from being logged
 
-      delay(100);
-
-      server.send(200, "text/plain", inputMessage);
-
-      ESP.restart();
-    });
-
-    // Add POST handler for applySettings
+    // POST handler for applySettings
     server.on("/applySettings", HTTP_POST, []() {
       info("Applying settings via POST");
       String inputMessage;
