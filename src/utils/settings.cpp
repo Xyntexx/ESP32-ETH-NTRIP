@@ -48,7 +48,8 @@ bool readSettings()
   settings["rtk_mntpnt_user2"] = user2;
 
   settings["rtcmChk"] = preferences.getBool("rtcmChk", true);
-  settings["ntripVersion"] = preferences.getInt("ntripVersion", 1);  // Default to 1 if not set
+  settings["ntripVersion1"] = preferences.getInt("ntripVersion1", 1);  // Default to 1 if not set
+  settings["ntripVersion2"] = preferences.getInt("ntripVersion2", 1);  // Default to 1 if not set
   settings["ecefX"] = preferences.getLong64("ecefX", 0);
   settings["ecefY"] = preferences.getLong64("ecefY", 0);
   settings["ecefZ"] = preferences.getLong64("ecefZ", 0);
@@ -95,11 +96,11 @@ bool writeSettings(String name, String value)
     const char* key = (name == "rtcmChk") ? "rtcmChk" : name.c_str();
     preferences.putBool(key, boolValue);
   }
-  else if (name == "ntripVersion")
+  else if (name == "ntripVersion1" || name == "ntripVersion2")
   {
     int version = value.toInt();
     debugf("Converting to NTRIP version: %d", version);
-    preferences.putInt("ntripVersion", version);
+    preferences.putInt(name.c_str(), version);
   }
   else if (name == "ecefX" || name == "ecefY" || name == "ecefZ")
   {
