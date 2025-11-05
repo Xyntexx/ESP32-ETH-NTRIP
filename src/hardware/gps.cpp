@@ -77,7 +77,7 @@ bool initializeGPS() {
         gpsInitTime = millis();
     }
     // Start GPS tasks with centralized stack sizes
-    xTaskCreate(gps_uart_check_task, "gps_uart_check_task", GPS_UART_CHECK_TASK_STACK, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
+    xTaskCreate(gps_uart_check_task, "gpsUartTask", GPS_UART_CHECK_TASK_STACK, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
     delay(1000);
     xTaskCreate(gpsStatusTask, "gpsStatusTask", GPS_STATUS_TASK_STACK, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
     return true;
