@@ -57,7 +57,7 @@ bool initializeGPS() {
     for (const int test_baud : test_bauds) {
         debugf("Testing baud rate: %d", test_baud);
         Serial1.end();
-        Serial1.setRxBufferSize(1024 * 5);
+        Serial1.setRxBufferSize(1024 * 8);  // 8KB buffer to handle high baud rates
         Serial1.begin(test_baud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
         delay(1000);
         if ((resp = myGNSS.begin(Serial1, defaultMaxWait, false))) {
@@ -107,7 +107,7 @@ bool configureGPS() {
     debugf("Setting UART1 baud rate to %d", selected_baud);
     myGNSS.setSerialRate(selected_baud, COM_PORT_UART1);  // Set the UART port to fast baud rate
     Serial1.end();
-    Serial1.setRxBufferSize(1024 * 5);
+    Serial1.setRxBufferSize(1024 * 8);  // 8KB buffer to handle high baud rates
     Serial1.begin(selected_baud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
     // Disable all NMEA sentences
@@ -369,13 +369,39 @@ void disable_fast_uart() {
 }
 
 [[noreturn]] void gps_uart_check_task(void *pvParameters){
+    static unsigned long lastBufferWarning = 0;
+    static int maxBufferUsage = 0;
+    const int BUFFER_SIZE = 1024 * 8;  // 8KB
+    const int WARNING_THRESHOLD = (BUFFER_SIZE * 75) / 100;  // 75% full
+
     for (;;) {
         // Process GNSS data if any connection is active
         if (fast_uart_handle) {
+            // Check buffer usage before processing
+            int available = Serial1.available();
+
+            // Track maximum buffer usage
+            if (available > maxBufferUsage) {
+                maxBufferUsage = available;
+                debugf("GPS UART buffer peak usage: %d/%d bytes (%.1f%%)",
+                       maxBufferUsage, BUFFER_SIZE, (maxBufferUsage * 100.0f) / BUFFER_SIZE);
+            }
+
+            // Warn if buffer is getting full (rate-limited to once per 5 seconds)
+            if (available > WARNING_THRESHOLD) {
+                unsigned long now = millis();
+                if ((unsigned long)(now - lastBufferWarning) > 5000) {
+                    lastBufferWarning = now;
+                    warningf("GPS UART buffer near overflow: %d/%d bytes (%.1f%% full)",
+                            available, BUFFER_SIZE, (available * 100.0f) / BUFFER_SIZE);
+                }
+            }
+
             myGNSS.checkUblox();
+            // No delay when data is available - process as fast as possible
+            // Only yield CPU if buffer is empty to prevent UART overflow
             if (!Serial1.available()) {
-                // Fixed: Use proper delay (1ms minimum to avoid tight loop)
-                vTaskDelay(pdMS_TO_TICKS(1));
+                taskYIELD();  // Give other tasks a chance to run
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(10));  // 10ms delay when not in fast mode
