@@ -398,10 +398,16 @@ void disable_fast_uart() {
             }
 
             myGNSS.checkUblox();
-            // No delay when data is available - process as fast as possible
-            // Only yield CPU if buffer is empty to prevent UART overflow
+
+            // Always use a minimal delay to allow lower-priority tasks (like loopTask) to run
+            // and feed the watchdog. Even 1 tick (~1ms) is enough to prevent starvation.
+            // At 460800 baud, ~57 bytes arrive per 1ms, but 8KB buffer provides plenty of margin.
             if (!Serial1.available()) {
-                taskYIELD();  // Give other tasks a chance to run
+                vTaskDelay(pdMS_TO_TICKS(1));  // 1ms delay when buffer empty
+            } else {
+                // Buffer has data: process multiple iterations quickly, then brief delay
+                // This batches processing while still allowing watchdog to be fed
+                vTaskDelay(1);  // Minimum possible delay (1 FreeRTOS tick)
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(10));  // 10ms delay when not in fast mode
