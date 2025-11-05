@@ -49,7 +49,8 @@ void print_and_update_time_since(const int msg_type) {
     }
 }
 
-#define MAX_BUFFER_LEN 256
+// RTCM message max size: 3 header + 1023 payload + 3 CRC = 1029 bytes
+#define MAX_BUFFER_LEN 1029
 
 uint8_t rtcm_buffer[MAX_BUFFER_LEN];
 int rtcm_index = 0;

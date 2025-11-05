@@ -9,13 +9,13 @@ SFE_UBLOX_GNSS myGNSS;
 
 constexpr int GPS_RX_PIN = 0;
 constexpr int GPS_TX_PIN = 1;
-constexpr size_t test_bauds_len = 4;
+constexpr size_t test_bauds_len = GPS_BAUD_TEST_COUNT;
 constexpr int test_bauds[test_bauds_len] = {460800, 38400, 115200, 230400};
-constexpr int selected_baud = 460800;
+constexpr int selected_baud = GPS_SELECTED_BAUD;
 
 bool gpsConnected = false;
 unsigned long gpsInitTime;
-String gpsStatusString;
+String gpsStatusSting;
 
 GPSStatusStruct currentGPSStatus;
 
@@ -26,6 +26,23 @@ GPSMode getGpsMode();
 
 bool prev_survey_in_active = false;
 
+// GPS Task Synchronization: fast_uart_handle controls UART polling frequency
+//
+// The GPS module uses two FreeRTOS tasks that need to coordinate:
+// 1. gpsStatusTask: Updates GPS status every 1 second (slow)
+// 2. gps_uart_check_task: Processes incoming RTCM data from GPS UART (fast)
+//
+// Problem: myGNSS.checkUblox() and other GPS operations (getSurveyMode, etc.)
+// cannot run concurrently - they're not thread-safe and share the same UART.
+//
+// Solution: fast_uart_handle acts as a mutex-like flag:
+// - When TRUE: gps_uart_check_task actively polls UART at high frequency (1ms)
+//              for RTCM data processing. Status updates are blocked.
+// - When FALSE: Status updates can safely query GPS module (getSurveyMode, etc.)
+//               gps_uart_check_task sleeps for 10ms to avoid interference.
+//
+// This prevents race conditions where status queries would corrupt RTCM data
+// stream or vice versa. The flag is toggled around GPS configuration operations.
 bool fast_uart_handle = false;
 
 void disable_fast_uart();
@@ -40,7 +57,7 @@ bool initializeGPS() {
     for (const int test_baud : test_bauds) {
         debugf("Testing baud rate: %d", test_baud);
         Serial1.end();
-        Serial1.setRxBufferSize(1024 * 5);
+        Serial1.setRxBufferSize(1024 * 8);  // 8KB buffer to handle high baud rates
         Serial1.begin(test_baud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
         delay(1000);
         if ((resp = myGNSS.begin(Serial1, defaultMaxWait, false))) {
@@ -59,10 +76,10 @@ bool initializeGPS() {
     if (gpsConnected) {
         gpsInitTime = millis();
     }
-    // Start task
-    xTaskCreate(gps_uart_check_task, "gps_uart_check_task", 10000, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
+    // Start GPS tasks with centralized stack sizes
+    xTaskCreate(gps_uart_check_task, "gpsUartTask", GPS_UART_CHECK_TASK_STACK, nullptr, GPS_UART_CHECK_TASK_PRIORITY, nullptr);
     delay(1000);
-    xTaskCreate(gpsStatusTask, "gpsStatusTask", 4096, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
+    xTaskCreate(gpsStatusTask, "gpsStatusTask", GPS_STATUS_TASK_STACK, nullptr, GPS_STATUS_TASK_PRIORITY, nullptr);
     return true;
 }
 
@@ -90,7 +107,7 @@ bool configureGPS() {
     debugf("Setting UART1 baud rate to %d", selected_baud);
     myGNSS.setSerialRate(selected_baud, COM_PORT_UART1);  // Set the UART port to fast baud rate
     Serial1.end();
-    Serial1.setRxBufferSize(1024 * 5);
+    Serial1.setRxBufferSize(1024 * 8);  // 8KB buffer to handle high baud rates
     Serial1.begin(selected_baud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
     // Disable all NMEA sentences
@@ -319,8 +336,8 @@ bool updateGPSStatus() {
         enable_fast_uart();
     }
 
-    gpsStatusString = gpsStatusString(currentGPSStatus);
-    currentGPSStatus.gpsModeString = gpsStatusString.c_str();
+    gpsStatusSting = gpsStatusString(currentGPSStatus);
+    currentGPSStatus.gpsModeString = gpsStatusSting.c_str();
 
     // If survey-in mode has just completed, save the position
     if (prev_survey_in_active && !currentGPSStatus.surveyInActive) {
@@ -331,10 +348,14 @@ bool updateGPSStatus() {
     return true;
 }
 
+// Enable fast UART polling for RTCM data processing
+// Call this when GPS is configured and ready to stream RTCM data
 void enable_fast_uart() {
     fast_uart_handle = true;
 }
 
+// Disable fast UART polling to allow safe GPS configuration
+// Call this before any GPS status queries or configuration changes
 void disable_fast_uart() {
     fast_uart_handle = false;
 }
@@ -348,13 +369,45 @@ void disable_fast_uart() {
 }
 
 [[noreturn]] void gps_uart_check_task(void *pvParameters){
+    static unsigned long lastBufferWarning = 0;
+    static int maxBufferUsage = 0;
+    const int BUFFER_SIZE = 1024 * 8;  // 8KB
+    const int WARNING_THRESHOLD = (BUFFER_SIZE * 75) / 100;  // 75% full
+
     for (;;) {
         // Process GNSS data if any connection is active
         if (fast_uart_handle) {
+            // Check buffer usage before processing
+            int available = Serial1.available();
+
+            // Track maximum buffer usage
+            if (available > maxBufferUsage) {
+                maxBufferUsage = available;
+                debugf("GPS UART buffer peak usage: %d/%d bytes (%.1f%%)",
+                       maxBufferUsage, BUFFER_SIZE, (maxBufferUsage * 100.0f) / BUFFER_SIZE);
+            }
+
+            // Warn if buffer is getting full (rate-limited to once per 5 seconds)
+            if (available > WARNING_THRESHOLD) {
+                unsigned long now = millis();
+                if ((unsigned long)(now - lastBufferWarning) > 5000) {
+                    lastBufferWarning = now;
+                    warningf("GPS UART buffer near overflow: %d/%d bytes (%.1f%% full)",
+                            available, BUFFER_SIZE, (available * 100.0f) / BUFFER_SIZE);
+                }
+            }
+
             myGNSS.checkUblox();
+
+            // Always use a minimal delay to allow lower-priority tasks (like loopTask) to run
+            // and feed the watchdog. Even 1 tick (~1ms) is enough to prevent starvation.
+            // At 460800 baud, ~57 bytes arrive per 1ms, but 8KB buffer provides plenty of margin.
             if (!Serial1.available()) {
-                // Fixed: Use proper delay (1ms minimum to avoid tight loop)
-                vTaskDelay(pdMS_TO_TICKS(1));
+                vTaskDelay(pdMS_TO_TICKS(1));  // 1ms delay when buffer empty
+            } else {
+                // Buffer has data: process multiple iterations quickly, then brief delay
+                // This batches processing while still allowing watchdog to be fed
+                vTaskDelay(1);  // Minimum possible delay (1 FreeRTOS tick)
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(10));  // 10ms delay when not in fast mode

@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 // Constants
-constexpr int LOG_SIZE = 20;
+constexpr int LOG_SIZE = 50;  // Increased from 20 to show more history on web UI
 
 // Logging levels
 enum class LogLevel {
