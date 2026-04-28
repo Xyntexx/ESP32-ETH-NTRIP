@@ -34,7 +34,7 @@
 #define STATIC_SN 255, 255, 255, 0
 #define STATIC_DNS 8, 8, 8, 8
 
-#define FIRMWARE_VERSION "0.42.0"  // Update this when you release new versions
+#define FIRMWARE_VERSION "0.42.1"  // Update this when you release new versions
 #define BUILD_DATE __DATE__ " " __TIME__
 
 // Task Priorities
